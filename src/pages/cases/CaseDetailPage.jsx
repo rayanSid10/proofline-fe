@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -28,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { InvestigationModal } from '@/components/modals/InvestigationModal';
 import { mockCases, fraudTypes, channels } from '@/data/mockCases';
 
 function formatCurrency(amount) {
@@ -52,6 +54,7 @@ const actionLabels = {
 export function CaseDetailPage({ currentRole = 'investigator' }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [investigationModalOpen, setInvestigationModalOpen] = useState(false);
 
   const caseData = mockCases.find((c) => c.id === parseInt(id));
   const isSupervisor = currentRole === 'supervisor' || currentRole === 'admin';
@@ -108,11 +111,9 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
 
           {/* Investigator: Start Investigation for open cases */}
           {caseData.status === 'open' && (
-            <Button asChild>
-              <Link to={`/cases/${id}/investigation`}>
-                <Play className="mr-2 h-4 w-4" />
-                Start Investigation
-              </Link>
+            <Button onClick={() => setInvestigationModalOpen(true)}>
+              <Play className="mr-2 h-4 w-4" />
+              Start Investigation
             </Button>
           )}
 
@@ -120,11 +121,9 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
           {['in_progress', 'pending_review', 'approved', 'rejected', 'closed'].includes(
             caseData.status
           ) && (
-            <Button variant="outline" asChild>
-              <Link to={`/cases/${id}/investigation`}>
-                <Eye className="mr-2 h-4 w-4" />
-                View Investigation
-              </Link>
+            <Button variant="outline" onClick={() => setInvestigationModalOpen(true)}>
+              <Eye className="mr-2 h-4 w-4" />
+              View Investigation
             </Button>
           )}
 
@@ -161,10 +160,8 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
                     <Eye className="h-5 w-5" />
                     Investigation Summary
                   </CardTitle>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={`/cases/${id}/investigation`}>
-                      View Details
-                    </Link>
+                  <Button variant="outline" size="sm" onClick={() => setInvestigationModalOpen(true)}>
+                    View Details
                   </Button>
                 </div>
               </CardHeader>
@@ -503,6 +500,13 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Investigation Modal */}
+      <InvestigationModal
+        open={investigationModalOpen}
+        onOpenChange={setInvestigationModalOpen}
+        caseData={caseData}
+      />
     </div>
   );
 }

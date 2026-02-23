@@ -8,6 +8,10 @@ import CreateCasePage from '@/pages/cases/CreateCasePage';
 import InvestigationPage from '@/pages/cases/InvestigationPage';
 import SupervisorReviewPage from '@/pages/cases/SupervisorReviewPage';
 import ReportViewPage from '@/pages/cases/ReportViewPage';
+import FTDHInwardPage from '@/pages/ftdh/FTDHInwardPage';
+import FTDHDetailPage from '@/pages/ftdh/FTDHDetailPage';
+import FTDHBranchPage from '@/pages/ftdh/FTDHBranchPage';
+import FTDHBranchDetailPage from '@/pages/ftdh/FTDHBranchDetailPage';
 import {
   canAccessIBMB,
   canAccessFTDH,
@@ -106,7 +110,7 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         {/* FTDH — ftdh_officer, admin */}
         <Route path="/ftdh" element={
           <PermissionGuard allowed={canAccessFTDH(currentRole)}>
-            <PlaceholderPage title="FTDH Inbox" />
+            <FTDHInwardPage currentRole={currentRole} />
           </PermissionGuard>
         } />
         <Route path="/ftdh/outward" element={
@@ -116,12 +120,17 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         } />
         <Route path="/ftdh/branch" element={
           <PermissionGuard allowed={canAccessFTDH(currentRole) || isBranchUser(currentRole)}>
-            <PlaceholderPage title="Branch Portal" />
+            <FTDHBranchPage currentRole={currentRole} />
+          </PermissionGuard>
+        } />
+        <Route path="/ftdh-branch/:id" element={
+          <PermissionGuard allowed={canAccessFTDH(currentRole) || isBranchUser(currentRole)}>
+            <FTDHBranchDetailPage currentRole={currentRole} />
           </PermissionGuard>
         } />
         <Route path="/ftdh/:id" element={
           <PermissionGuard allowed={canAccessFTDH(currentRole)}>
-            <PlaceholderPage title="FTDH Details" />
+            <FTDHDetailPage currentRole={currentRole} />
           </PermissionGuard>
         } />
 

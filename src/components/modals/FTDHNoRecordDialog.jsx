@@ -1,17 +1,14 @@
-import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-export function NoRecordFoundDialog({ open, onOpenChange }) {
-  const navigate = useNavigate();
-
+export function FTDHNoRecordDialog({ open, onOpenChange, onProceed }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[420px] text-center p-8">
-        {/* Exact Figma SVG — stacked database with info badge */}
+        {/* FTDH Database illustration SVG */}
         <div className="flex justify-center mb-4">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -26,42 +23,42 @@ export function NoRecordFoundDialog({ open, onOpenChange }) {
             />
             <path
               d="M64.073 0.21104C40.1001 1.50106 19.1373 9.40243 8.2259 21.1739C-2.14801 32.354 -1.98675 45.2542 8.60216 56.4344C18.2236 66.5396 35.2626 73.7422 56.2791 76.5372C63.858 77.5585 82.0795 77.3972 89.6047 76.2684C117.501 72.0759 136.852 60.9495 142.28 46.0067C143.302 43.1579 143.463 41.8679 143.248 37.6216C143.087 33.1065 142.818 32.0853 141.098 28.5915C131.853 9.93994 100.14 -1.72399 64.073 0.21104Z"
-              fill="url(#paint0_linear_6883_33452)"
+              fill="url(#paint0_linear_ftdh)"
             />
             <path
               d="M1.45319 61.3795C-0.911842 70.2484 1.50695 78.096 8.97831 85.6749C18.8685 95.7263 35.1012 102.553 55.4728 105.24C63.9654 106.369 80.3056 106.369 88.7445 105.24C114.276 101.854 134.325 91.3724 140.99 77.8272C142.764 74.1722 143.033 73.1509 143.248 68.9046C143.463 64.4433 142.71 59.2832 141.797 59.2832C141.635 59.2832 140.883 60.412 140.13 61.8095C138.249 65.4108 132.068 71.7534 127.391 74.8709C113.577 84.1161 94.6571 89.0074 72.673 89.0612C57.9453 89.1149 47.1414 87.5561 35.4775 83.7398C20.8035 78.9023 8.70955 70.5709 4.35574 62.2933C3.49573 60.627 2.63571 59.2832 2.42071 59.2832C2.20571 59.2832 1.7757 60.197 1.45319 61.3795Z"
-              fill="url(#paint1_linear_6883_33452)"
+              fill="url(#paint1_linear_ftdh)"
             />
             <path
               d="M0.861963 90.2974C-0.159302 93.7912 0.00195031 100.295 1.18447 103.628C6.07579 117.549 25.1036 129.213 49.829 133.406C63.2129 135.663 79.9294 135.663 93.1521 133.406L96.4309 132.814L96.6997 127.117C96.9147 123.032 97.2909 120.505 98.0972 118.463C98.7422 116.85 99.1722 115.453 99.1185 115.399C99.0647 115.292 96.2159 115.722 92.8834 116.313C60.0416 121.903 24.7811 114.055 8.92459 97.6075C6.98956 95.6187 4.57077 92.5549 3.65701 90.8349C2.68949 89.1686 1.82948 87.7711 1.72198 87.7711C1.66823 87.7711 1.23822 88.8999 0.861963 90.2974Z"
-              fill="url(#paint2_linear_6883_33452)"
+              fill="url(#paint2_linear_ftdh)"
             />
             <path
               d="M139.593 90.2974C138.84 91.695 136.959 94.2212 135.454 95.8875C132.659 98.8976 132.014 100.134 133.25 100.134C133.573 100.134 135.508 100.886 137.55 101.854C140.292 103.09 141.42 103.359 141.85 102.929C143.248 101.531 142.764 87.7711 141.313 87.7711C141.098 87.7711 140.345 88.8999 139.593 90.2974Z"
-              fill="url(#paint3_linear_6883_33452)"
+              fill="url(#paint3_linear_ftdh)"
             />
             <path
               d="M0.969468 118.517C-2.20183 128.461 2.52824 139.533 13.3859 147.703C26.9849 157.916 47.8939 163.614 71.5443 163.614C81.8107 163.614 87.347 163.13 96.5922 161.356C101.645 160.389 115.405 156.303 115.405 155.766C115.405 155.658 113.739 154.691 111.696 153.616C108.202 151.788 103.042 147.112 101.591 144.532C101.053 143.564 100.892 143.564 94.9259 144.693C70.4155 149.262 42.1426 146.037 23.2223 136.523C14.7834 132.277 6.72081 125.397 3.81826 119.807C2.95825 118.14 2.09824 116.797 1.88323 116.797C1.72198 116.797 1.29197 117.603 0.969468 118.517Z"
-              fill="url(#paint4_linear_6883_33452)"
+              fill="url(#paint4_linear_ftdh)"
             />
             <defs>
-              <linearGradient id="paint0_linear_6883_33452" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
+              <linearGradient id="paint0_linear_ftdh" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
                 <stop stopColor="#4596FA" />
                 <stop offset="1" stopColor="#2064B7" />
               </linearGradient>
-              <linearGradient id="paint1_linear_6883_33452" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
+              <linearGradient id="paint1_linear_ftdh" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
                 <stop stopColor="#4596FA" />
                 <stop offset="1" stopColor="#2064B7" />
               </linearGradient>
-              <linearGradient id="paint2_linear_6883_33452" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
+              <linearGradient id="paint2_linear_ftdh" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
                 <stop stopColor="#4596FA" />
                 <stop offset="1" stopColor="#2064B7" />
               </linearGradient>
-              <linearGradient id="paint3_linear_6883_33452" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
+              <linearGradient id="paint3_linear_ftdh" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
                 <stop stopColor="#4596FA" />
                 <stop offset="1" stopColor="#2064B7" />
               </linearGradient>
-              <linearGradient id="paint4_linear_6883_33452" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
+              <linearGradient id="paint4_linear_ftdh" x1="41.0236" y1="9.94721" x2="113.126" y2="123.695" gradientUnits="userSpaceOnUse">
                 <stop stopColor="#4596FA" />
                 <stop offset="1" stopColor="#2064B7" />
               </linearGradient>
@@ -71,19 +68,16 @@ export function NoRecordFoundDialog({ open, onOpenChange }) {
 
         <h2 className="text-xl font-bold mb-1">No Records Available</h2>
         <h3 className="text-lg font-medium text-muted-foreground mb-1">
-          in IB / MB DataBase
+          in FTDH Database
         </h3>
         <p className="text-muted-foreground mb-6">
-          Do you want to create a new Case?
+          Do you want to create a new FTDH Case?
         </p>
 
         <div className="flex justify-center gap-4">
           <Button
             className="bg-[#2064B7] hover:bg-[#2064B7]/90 text-white px-8"
-            onClick={() => {
-              onOpenChange(false);
-              navigate('/cases/create');
-            }}
+            onClick={onProceed}
           >
             Proceed
           </Button>
@@ -100,4 +94,4 @@ export function NoRecordFoundDialog({ open, onOpenChange }) {
   );
 }
 
-export default NoRecordFoundDialog;
+export default FTDHNoRecordDialog;

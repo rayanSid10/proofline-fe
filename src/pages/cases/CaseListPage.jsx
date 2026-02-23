@@ -203,7 +203,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
             Import
           </Button>
           <Button
-            className="h-9 px-4 text-sm bg-[#4A90D9] hover:bg-[#3A7DC5] text-white shadow-none"
+            className="h-9 px-4 text-sm bg-[#2064B7] hover:bg-[#2064B7]/90 text-white shadow-none"
             asChild
           >
             <Link to="/cases/create">
@@ -355,7 +355,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
                       <TableCell className="py-3 text-sm font-medium">
                         <Link
                           to={`/cases/${caseItem.id}`}
-                          className="text-[#4A90D9] hover:underline"
+                          className="text-[#2064B7] hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {caseItem.reference_number}
@@ -406,11 +406,11 @@ export function CaseListPage({ currentRole = 'investigator' }) {
       <div className="flex items-center justify-between text-xs text-gray-400 pt-4 shrink-0">
         <span>
           © 2025, Made by{' '}
-          <span className="text-[#4A90D9] font-medium">ProofLine</span>
+          <span className="text-[#2064B7] font-medium">ProofLine</span>
         </span>
         <div className="flex gap-4">
-          <a href="#" className="text-[#4A90D9] hover:underline">License</a>
-          <a href="#" className="text-[#4A90D9] hover:underline">Support</a>
+          <a href="#" className="text-[#2064B7] hover:underline">License</a>
+          <a href="#" className="text-[#2064B7] hover:underline">Support</a>
         </div>
       </div>
 

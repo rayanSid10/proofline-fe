@@ -96,6 +96,14 @@ function getMenuItems(role) {
     });
   }
 
+  if (isBranchUser(role)) {
+    items.push({
+      title: 'FTDH Branch',
+      icon: Building2,
+      path: '/ftdh/branch',
+    });
+  }
+
   items.push({
     title: 'Reports',
     icon: BarChart3,
@@ -145,7 +153,7 @@ function SidebarContent({ collapsed = false, currentRole, onLogout }) {
   const menuItems = getMenuItems(currentRole);
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-b from-[#4A90D9] to-[#2B5EA7]">
+    <div className="flex h-full flex-col bg-[#2064B7]">
       {/* Logo */}
       <div className="flex h-16 items-center px-4 border-b border-white/10">
         <span

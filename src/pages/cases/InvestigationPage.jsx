@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -45,6 +45,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { InvestigationModal } from '@/components/modals/InvestigationModal';
 import { mockCases, fraudTypes } from '@/data/mockCases';
 import { getRandomTranscription } from '@/data/mockTranscriptions';
 
@@ -117,8 +118,22 @@ const mockAudioFiles = [
 export function InvestigationPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [showModal, setShowModal] = useState(true);
 
   const caseData = mockCases.find((c) => c.id === parseInt(id));
+
+  // Auto-open modal when page loads via direct URL
+  useEffect(() => {
+    setShowModal(true);
+  }, []);
+
+  const handleModalClose = (open) => {
+    if (!open) {
+      // Navigate back to case detail when modal closes
+      navigate(`/cases/${id}`);
+    }
+    setShowModal(open);
+  };
 
   // Customer Contact State
   const [customerContact, setCustomerContact] = useState({
@@ -186,6 +201,18 @@ export function InvestigationPage() {
       </div>
     );
   }
+
+  // Show the new Investigation Modal design
+  return (
+    <InvestigationModal
+      open={showModal}
+      onOpenChange={handleModalClose}
+      caseData={caseData}
+    />
+  );
+
+  // Legacy code below - kept for reference but not used
+  /* eslint-disable no-unreachable */
 
   const handleTranscribe = async (fileId) => {
     setTranscribingId(fileId);
