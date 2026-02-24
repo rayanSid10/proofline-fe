@@ -44,3 +44,7 @@ coverage
 CLAUDE.md
 GEMINI.md
 docs/
+investigation_form_fields.md
+.claude/
+.github/
+.vscode/

@@ -111,9 +111,11 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
 
           {/* Investigator: Start Investigation for open cases */}
           {caseData.status === 'open' && (
-            <Button onClick={() => setInvestigationModalOpen(true)}>
-              <Play className="mr-2 h-4 w-4" />
-              Start Investigation
+            <Button asChild>
+              <Link to={`/cases/${id}/investigate`}>
+                <Play className="mr-2 h-4 w-4" />
+                Start Investigation
+              </Link>
             </Button>
           )}
 
@@ -121,9 +123,11 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
           {['in_progress', 'pending_review', 'approved', 'rejected', 'closed'].includes(
             caseData.status
           ) && (
-            <Button variant="outline" onClick={() => setInvestigationModalOpen(true)}>
-              <Eye className="mr-2 h-4 w-4" />
-              View Investigation
+            <Button variant="outline" asChild>
+              <Link to={`/cases/${id}/investigate`}>
+                <Eye className="mr-2 h-4 w-4" />
+                View Investigation
+              </Link>
             </Button>
           )}
 

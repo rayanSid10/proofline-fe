@@ -124,3 +124,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+.no-native-picker::-webkit-calendar-picker-indicator {
+  display: none;
+  opacity: 0;
+}
+
+.no-native-picker::-webkit-inner-spin-button {
+  display: none;
+}

@@ -1,0 +1,7 @@
+# Investigation Activity Log — Case #FRD-2024-0042
+# Generated from system audit trail and call center records
+
+Call was not made to the customer
+Customer stance was that they did not share OTP with anyone during initial call
+Observed device was blocked successfully from the backend
+No FRM system alert was generated for this transaction

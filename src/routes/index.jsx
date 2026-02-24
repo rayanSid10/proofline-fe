@@ -6,9 +6,12 @@ import CaseListPage from '@/pages/cases/CaseListPage';
 import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
 import InvestigationPage from '@/pages/cases/InvestigationPage';
+import InvestigationFormPage from '@/pages/cases/InvestigationFormPage';
 import SupervisorReviewPage from '@/pages/cases/SupervisorReviewPage';
 import ReportViewPage from '@/pages/cases/ReportViewPage';
 import FTDHInwardPage from '@/pages/ftdh/FTDHInwardPage';
+import FTDHOutwardPage from '@/pages/ftdh/FTDHOutwardPage';
+import FTDHOutwardDetailPage from '@/pages/ftdh/FTDHOutwardDetailPage';
 import FTDHDetailPage from '@/pages/ftdh/FTDHDetailPage';
 import FTDHBranchPage from '@/pages/ftdh/FTDHBranchPage';
 import FTDHBranchDetailPage from '@/pages/ftdh/FTDHBranchDetailPage';
@@ -96,6 +99,11 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
             <InvestigationPage />
           </PermissionGuard>
         } />
+        <Route path="/cases/:id/investigate" element={
+          <PermissionGuard allowed={canAccessIBMB(currentRole)}>
+            <InvestigationFormPage />
+          </PermissionGuard>
+        } />
         <Route path="/cases/:id/review" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
             <SupervisorReviewPage />
@@ -115,7 +123,12 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         } />
         <Route path="/ftdh/outward" element={
           <PermissionGuard allowed={canAccessFTDH(currentRole)}>
-            <PlaceholderPage title="Outward FTDH" />
+            <FTDHOutwardPage currentRole={currentRole} />
+          </PermissionGuard>
+        } />
+        <Route path="/ftdh/outward/:id" element={
+          <PermissionGuard allowed={canAccessFTDH(currentRole)}>
+            <FTDHOutwardDetailPage currentRole={currentRole} />
           </PermissionGuard>
         } />
         <Route path="/ftdh/branch" element={

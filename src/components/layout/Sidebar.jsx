@@ -89,10 +89,21 @@ function getMenuItems(role) {
 
   if (canAccessFTDH(role)) {
     items.push({
-      title: 'FTDH',
+      title: 'FTDH Inward',
       icon: Clock,
       path: '/ftdh',
       badge: '10 New',
+      isActive: (pathname) => {
+        if (pathname.startsWith('/ftdh/outward') || pathname.startsWith('/ftdh/branch')) return false;
+        return pathname === '/ftdh' || /^\/ftdh\/[A-Za-z0-9_-]+$/.test(pathname);
+      },
+    });
+
+    items.push({
+      title: 'FTDH Outward',
+      icon: Clock,
+      path: '/ftdh/outward',
+      isActive: (pathname) => pathname === '/ftdh/outward' || pathname.startsWith('/ftdh/outward/'),
     });
   }
 
@@ -123,9 +134,12 @@ function getMenuItems(role) {
 
 function NavItem({ item, collapsed }) {
   const location = useLocation();
-  const isActive =
-    location.pathname === item.path ||
-    (item.path !== '/dashboard' && location.pathname.startsWith(item.path + '/'));
+  const isActive = item.isActive
+    ? item.isActive(location.pathname)
+    : (
+      location.pathname === item.path ||
+      (item.path !== '/dashboard' && location.pathname.startsWith(item.path + '/'))
+    );
 
   return (
     <NavLink
