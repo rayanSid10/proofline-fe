@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar';
 import { SubmissionSuccessDialog } from '@/components/modals/SubmissionSuccessDialog';
-import { mockCases } from '@/data/mockCases';
+import { getAllCases } from '@/data/caseStorage';
 import { parseActivityLog, matchesToFormState } from '@/utils/parseActivityLog';
 import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
 import { Headphones } from 'lucide-react';
@@ -140,7 +140,7 @@ export function InvestigationFormPage() {
   const [showLogBanner, setShowLogBanner] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
 
-  const caseData = mockCases.find((c) => c.id === parseInt(id));
+  const caseData = getAllCases().find((c) => c.id === parseInt(id));
 
   const [f, setF] = useState({
     // Step 1: Customer / Complaint Details

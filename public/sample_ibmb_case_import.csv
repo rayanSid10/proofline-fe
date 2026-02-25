@@ -1,0 +1,4 @@
+CNIC,Customer_Name,Customer_City,Customer_Region,Customer_Mobile,Account_Number,Fraud_Type,Case_Received_Date,Case_Received_Channel,Transaction_ID,Transaction_Amount,Transaction_Date_Time,Transaction_Channel,Beneficiary_Account,Beneficiary_Bank,Beneficiary_Name,FTDH_ID,Complaint_No
+4210112345678,Ahmed Khan,Karachi,Sindh,03001234567,0012000012345678,SCAM - Online Investment,2026-02-22,Branch,TRN-987654321,5500.00,2026-02-20 14:30:00,MB,1122334455667,HBL,Unknown Beneficiary,M1A2B3C4,BR-2026-0001
+4210112345678,Ahmed Khan,Karachi,Sindh,03001234567,0012000012348678,SCAM - Online Investment,2026-02-22,Branch,TRN-987654322,1200.50,2026-02-21 09:15:00,MB,1122334455667,HBL,Unknown Beneficiary,M1A2B3C5,BR-2026-0001
+3520287654321,Sara Ahmed,Lahore,Punjab,03219876543,0012000087654321,Account Takeover,2026-02-22,Call Center,TRN-765432100,25000.00,2026-02-18 11:45:00,IB,9988776655443,MCB,Fraud Mule,M6D7E8F9,CC-2026-0044

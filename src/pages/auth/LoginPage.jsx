@@ -136,7 +136,7 @@ export function LoginPage({ onLogin }) {
             <div className="space-y-2">
               <Label htmlFor="role">Login as (Demo)</Label>
               <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger>
+                <SelectTrigger id="role">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>

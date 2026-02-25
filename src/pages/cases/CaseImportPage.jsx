@@ -12,13 +12,15 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { getAllCases, addImportedCases } from '@/data/caseStorage';
+import { parseCaseImportCsv, buildCasesFromImportRows } from '@/utils/caseImport';
 
 const importTypes = [
   {
     value: 'cases',
     label: 'Cases',
     description: 'Import new fraud cases with customer information',
-    template: 'cases_import_template.csv',
+    template: 'sample_ibmb_case_import.csv',
   },
   {
     value: 'transactions',
@@ -68,21 +70,57 @@ export function CaseImportPage() {
 
     setIsUploading(true);
 
-    // Simulate upload delay
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      if (importType !== 'cases') {
+        setUploadResult({
+          total: 0,
+          success: 0,
+          failed: 0,
+          skipped: 0,
+          errors: [
+            {
+              row: 1,
+              field: 'Import Type',
+              message: 'Only Cases import is enabled in demo mode.',
+            },
+          ],
+        });
+        return;
+      }
 
-    // Mock result
-    setUploadResult({
-      total: 10,
-      success: 8,
-      failed: 1,
-      skipped: 1,
-      errors: [
-        { row: 5, field: 'cnic', message: 'Invalid CNIC format' },
-      ],
-    });
+      const content = await file.text();
+      const { rows, errors, totalRows } = parseCaseImportCsv(content);
 
-    setIsUploading(false);
+      const existingCases = getAllCases();
+      const { importedCases, skipped } = buildCasesFromImportRows(rows, existingCases);
+      const { addedCases } = addImportedCases(importedCases);
+
+      setUploadResult({
+        total: totalRows,
+        success: rows.length - skipped,
+        failed: errors.length,
+        skipped,
+        addedCases,
+        createdCases: importedCases.length,
+        errors,
+      });
+    } catch {
+      setUploadResult({
+        total: 0,
+        success: 0,
+        failed: 1,
+        skipped: 0,
+        errors: [
+          {
+            row: 1,
+            field: 'file',
+            message: 'Unable to parse file. Please verify CSV format and try again.',
+          },
+        ],
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleReset = () => {
@@ -247,7 +285,7 @@ export function CaseImportPage() {
                         : 'Import Completed with Errors'}
                     </AlertTitle>
                     <AlertDescription>
-                      Processed {uploadResult.total} records
+                      Processed {uploadResult.total} rows • Imported {uploadResult.addedCases ?? uploadResult.success} rows into {uploadResult.createdCases ?? 0} case(s)
                     </AlertDescription>
                   </Alert>
 
@@ -324,10 +362,19 @@ export function CaseImportPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" className="w-full">
-                <Download className="mr-2 h-4 w-4" />
-                {selectedType?.template}
-              </Button>
+              {importType === 'cases' ? (
+                <Button variant="outline" className="w-full" asChild>
+                  <a href="/sample_ibmb_case_import.csv" download>
+                    <Download className="mr-2 h-4 w-4" />
+                    {selectedType?.template}
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" className="w-full" disabled>
+                  <Download className="mr-2 h-4 w-4" />
+                  {selectedType?.template}
+                </Button>
+              )}
             </CardContent>
           </Card>
 
@@ -355,6 +402,10 @@ export function CaseImportPage() {
               <div className="flex items-start gap-2">
                 <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
                 <span>Amounts without commas or currency symbols</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
+                <span>Rows with same CNIC/date/channel are grouped into one case with multiple transactions</span>
               </div>
             </CardContent>
           </Card>

@@ -43,7 +43,8 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { mockCases, fraudTypes, channels } from '@/data/mockCases';
+import { fraudTypes, channels } from '@/data/mockCases';
+import { getAllCases } from '@/data/caseStorage';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-PK', {
@@ -88,7 +89,7 @@ export function SupervisorReviewPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const caseData = mockCases.find((c) => c.id === parseInt(id));
+  const caseData = getAllCases().find((c) => c.id === parseInt(id));
 
   const [comments, setComments] = useState('');
   const [showApproveDialog, setShowApproveDialog] = useState(false);

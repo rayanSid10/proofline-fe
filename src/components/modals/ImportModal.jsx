@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { Upload, Link as LinkIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -9,11 +10,32 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { getAllCases, addImportedCases } from '@/data/caseStorage';
+import { parseCaseImportCsv, buildCasesFromImportRows } from '@/utils/caseImport';
 
-export function ImportModal({ open, onOpenChange }) {
+function toGoogleSheetCsvUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('docs.google.com')) return url;
+    if (!u.pathname.includes('/spreadsheets/')) return url;
+
+    const parts = u.pathname.split('/');
+    const dIndex = parts.findIndex((p) => p === 'd');
+    const sheetId = dIndex >= 0 ? parts[dIndex + 1] : '';
+    if (!sheetId) return url;
+
+    const gid = u.searchParams.get('gid') || '0';
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+  } catch {
+    return url;
+  }
+}
+
+export function ImportModal({ open, onOpenChange, onImported }) {
   const [activeTab, setActiveTab] = useState('upload');
   const [file, setFile] = useState(null);
   const [link, setLink] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileSelect = (e) => {
@@ -28,8 +50,72 @@ export function ImportModal({ open, onOpenChange }) {
   const handleClose = () => {
     setFile(null);
     setLink('');
+    setIsImporting(false);
     setActiveTab('upload');
     onOpenChange(false);
+  };
+
+  const processCsvText = async (csvText) => {
+    const { rows, errors, totalRows } = parseCaseImportCsv(csvText);
+    const existingCases = getAllCases();
+    const { importedCases, skipped } = buildCasesFromImportRows(rows, existingCases);
+    const { addedCases } = addImportedCases(importedCases);
+
+    const failed = errors.length;
+    const success = Math.max(rows.length - skipped, 0);
+
+    if (failed > 0) {
+      toast.warning(`${addedCases} Cases uploaded successfully`);
+    } else {
+      toast.success(`${addedCases} Cases uploaded successfully`);
+    }
+
+    if (onImported) {
+      onImported({ totalRows, success, failed, skipped, addedCases, createdCases: importedCases.length, errors });
+    }
+  };
+
+  const handleUploadImport = async () => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      toast.error('Unsupported file format', {
+        description: 'Demo import currently supports CSV files only.',
+      });
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const csvText = await file.text();
+      await processCsvText(csvText);
+      handleClose();
+    } catch {
+      toast.error('Import failed', {
+        description: 'Could not read CSV file.',
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleLinkImport = async () => {
+    if (!link.trim()) return;
+
+    setIsImporting(true);
+    try {
+      const csvUrl = toGoogleSheetCsvUrl(link.trim());
+      const res = await fetch(csvUrl);
+      if (!res.ok) throw new Error('fetch-failed');
+      const csvText = await res.text();
+      await processCsvText(csvText);
+      handleClose();
+    } catch {
+      toast.error('Import by link failed', {
+        description: 'Could not fetch CSV from link. Use direct CSV URL or upload file.',
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -46,6 +132,7 @@ export function ImportModal({ open, onOpenChange }) {
         <div className="px-6 pt-4">
           <div className="flex border-b">
             <button
+              type="button"
               className={cn(
                 'px-4 py-2 text-sm font-medium transition-colors relative',
                 activeTab === 'upload'
@@ -60,6 +147,7 @@ export function ImportModal({ open, onOpenChange }) {
               )}
             </button>
             <button
+              type="button"
               className={cn(
                 'px-4 py-2 text-sm font-medium transition-colors relative',
                 activeTab === 'link'
@@ -109,7 +197,7 @@ export function ImportModal({ open, onOpenChange }) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".csv,.xlsx,.xls"
                 className="hidden"
                 onChange={handleFileSelect}
               />
@@ -117,25 +205,32 @@ export function ImportModal({ open, onOpenChange }) {
               {file ? (
                 <div className="text-center space-y-2">
                   <p className="text-sm font-medium">{file.name}</p>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handleBrowse}>
-                      Change
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <Button variant="outline" size="sm" onClick={handleClose}>
+                      Cancel
                     </Button>
-                    <Button size="sm">Upload</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={handleUploadImport}
+                      disabled={isImporting}
+                    >
+                      {isImporting ? 'Importing...' : 'Upload'}
+                    </Button>
                   </div>
                 </div>
               ) : (
                 <>
                   <Button
+                    type="button"
                     className="bg-blue-600 hover:bg-blue-700 text-white px-8"
                     onClick={handleBrowse}
                   >
                     Browse
                   </Button>
                   <p className="text-sm text-muted-foreground text-center">
-                    Only Excel sheets can
-                    <br />
-                    be uploaded.
+                    CSV format supported
                   </p>
                 </>
               )}
@@ -152,10 +247,12 @@ export function ImportModal({ open, onOpenChange }) {
                     className="flex-1"
                   />
                   <Button
+                    type="button"
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                     disabled={!link.trim()}
+                    onClick={handleLinkImport}
                   >
-                    Import
+                    {isImporting ? 'Importing...' : 'Import'}
                   </Button>
                 </div>
               </div>

@@ -30,7 +30,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DataMasker } from '@/components/shared/DataMasker';
-import { mockCases, caseStatuses } from '@/data/mockCases';
+import { caseStatuses } from '@/data/mockCases';
+import { getAllCases } from '@/data/caseStorage';
 import { searchCustomers } from '@/data/mockCustomers';
 import { ImportModal } from '@/components/modals/ImportModal';
 import { NoRecordFoundDialog } from '@/components/modals/NoRecordFoundDialog';
@@ -78,6 +79,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedRows, setSelectedRows] = useState([]);
   const [page, setPage] = useState(0);
+  const [allCases, setAllCases] = useState(() => getAllCases());
 
   // ─── Modal / Dialog State
   const [importOpen, setImportOpen] = useState(false);
@@ -86,13 +88,17 @@ export function CaseListPage({ currentRole = 'investigator' }) {
   const [multiAccountOpen, setMultiAccountOpen] = useState(false);
   const [foundAccounts, setFoundAccounts] = useState([]);
 
+  const refreshCases = useCallback(() => {
+    setAllCases(getAllCases());
+  }, []);
+
   // ─── Table filtering
   const filteredCases = useMemo(() => {
-    return mockCases.filter((c) => {
+    return allCases.filter((c) => {
       if (statusFilter !== 'all' && c.status !== statusFilter) return false;
       return true;
     });
-  }, [statusFilter]);
+  }, [allCases, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCases.length / PAGE_SIZE));
   const pagedCases = filteredCases.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -103,7 +109,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
     if (!query) return;
 
     // 1) Check dispute database first
-    const matchingCase = mockCases.find((c) => {
+    const matchingCase = allCases.find((c) => {
       const cust = c.customer;
       return (
         cust.cnic?.includes(query) ||
@@ -137,7 +143,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
       setFoundAccounts(accounts);
       setMultiAccountOpen(true);
     }
-  }, [searchQuery, navigate]);
+  }, [allCases, searchQuery, navigate]);
 
   const handleSearchKeyDown = (e) => {
     if (e.key === 'Enter') {
@@ -415,7 +421,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
       </div>
 
       {/* ── Modals / Dialogs ────────────────────────────────────── */}
-      <ImportModal open={importOpen} onOpenChange={setImportOpen} />
+      <ImportModal open={importOpen} onOpenChange={setImportOpen} onImported={refreshCases} />
       <NoRecordFoundDialog open={noRecordOpen} onOpenChange={setNoRecordOpen} />
       <SingleAccountDialog
         open={singleAccountOpen}

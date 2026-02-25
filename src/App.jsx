@@ -5,25 +5,51 @@ import { Toaster } from '@/components/ui/sonner';
 import { AppRoutes } from '@/routes';
 
 const queryClient = new QueryClient();
+const AUTH_USER_KEY = 'proofline.auth.user';
+
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem(AUTH_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [currentRole, setCurrentRole] = useState('investigator');
+  const [user, setUser] = useState(() => getStoredUser());
+  const [currentRole, setCurrentRole] = useState(() => getStoredUser()?.role || 'investigator');
 
   const handleLogin = (userData) => {
     setUser(userData);
     setCurrentRole(userData.role);
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
+    } catch {
+      // ignore storage failures in demo mode
+    }
   };
 
   const handleLogout = () => {
     setUser(null);
     setCurrentRole('investigator');
+    try {
+      localStorage.removeItem(AUTH_USER_KEY);
+    } catch {
+      // ignore storage failures in demo mode
+    }
   };
 
   const handleRoleChange = (role) => {
     setCurrentRole(role);
     if (user) {
-      setUser({ ...user, role });
+      const updatedUser = { ...user, role };
+      setUser(updatedUser);
+      try {
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+      } catch {
+        // ignore storage failures in demo mode
+      }
     }
   };
 

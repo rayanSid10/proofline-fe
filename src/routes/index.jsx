@@ -5,6 +5,7 @@ import DashboardPage from '@/pages/dashboard/DashboardPage';
 import CaseListPage from '@/pages/cases/CaseListPage';
 import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
+import CaseImportPage from '@/pages/cases/CaseImportPage';
 import InvestigationPage from '@/pages/cases/InvestigationPage';
 import InvestigationFormPage from '@/pages/cases/InvestigationFormPage';
 import SupervisorReviewPage from '@/pages/cases/SupervisorReviewPage';
@@ -87,6 +88,11 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         <Route path="/cases/create" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
             <CreateCasePage />
+          </PermissionGuard>
+        } />
+        <Route path="/cases/import" element={
+          <PermissionGuard allowed={canAccessIBMB(currentRole)}>
+            <CaseImportPage />
           </PermissionGuard>
         } />
         <Route path="/cases/:id" element={

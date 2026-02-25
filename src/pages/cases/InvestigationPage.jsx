@@ -46,7 +46,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { InvestigationModal } from '@/components/modals/InvestigationModal';
-import { mockCases, fraudTypes } from '@/data/mockCases';
+import { fraudTypes } from '@/data/mockCases';
+import { getAllCases } from '@/data/caseStorage';
 import { getRandomTranscription } from '@/data/mockTranscriptions';
 
 const yesNoOptions = [
@@ -120,7 +121,7 @@ export function InvestigationPage() {
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(true);
 
-  const caseData = mockCases.find((c) => c.id === parseInt(id));
+  const caseData = getAllCases().find((c) => c.id === parseInt(id));
 
   // Auto-open modal when page loads via direct URL
   useEffect(() => {

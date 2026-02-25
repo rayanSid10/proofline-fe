@@ -31,7 +31,8 @@ import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { InvestigationModal } from '@/components/modals/InvestigationModal';
 import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
-import { mockCases, fraudTypes, channels } from '@/data/mockCases';
+import { fraudTypes, channels } from '@/data/mockCases';
+import { getAllCases } from '@/data/caseStorage';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-PK', {
@@ -58,7 +59,7 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
   const [investigationModalOpen, setInvestigationModalOpen] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
 
-  const caseData = mockCases.find((c) => c.id === parseInt(id));
+  const caseData = getAllCases().find((c) => c.id === parseInt(id));
   const isSupervisor = currentRole === 'supervisor' || currentRole === 'admin';
 
   if (!caseData) {
