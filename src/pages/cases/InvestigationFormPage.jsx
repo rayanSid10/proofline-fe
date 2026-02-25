@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ArrowLeft, ArrowRight, Check, Cloud, X, FileText, Eye, Trash2, Upload, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Cloud, X, FileText, Eye, Trash2, Upload, Sparkles, CheckCircle2, Save, AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +12,8 @@ import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar
 import { SubmissionSuccessDialog } from '@/components/modals/SubmissionSuccessDialog';
 import { mockCases } from '@/data/mockCases';
 import { parseActivityLog, matchesToFormState } from '@/utils/parseActivityLog';
+import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
+import { Headphones } from 'lucide-react';
 
 // ─── Icons (matching InvestigationModal) ──────────────────────────────────────
 const ComplaintIcon = ({ active }) => (
@@ -125,14 +128,17 @@ export function InvestigationFormPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState(0);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [allChangesSaved, setAllChangesSaved] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [isDirty, setIsDirty] = useState(false);      // true when form has unsaved changes
+  const [isSaving, setIsSaving] = useState(false);    // true while save animation plays
+  const [showExitPrompt, setShowExitPrompt] = useState(false); // unsaved-changes warning
+  const [pendingNavDest, setPendingNavDest] = useState(null);  // where we want to go after confirm
   const fileInputRef = useRef(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const activityLogRef = useRef(null);
   const [logParseResult, setLogParseResult] = useState(null); // { matches, unmatchedLines }
   const [showLogBanner, setShowLogBanner] = useState(false);
+  const [transcriptionOpen, setTranscriptionOpen] = useState(false);
 
   const caseData = mockCases.find((c) => c.id === parseInt(id));
 
@@ -193,8 +199,7 @@ export function InvestigationFormPage() {
 
   const set = (key, val) => {
     setF(p => ({ ...p, [key]: val }));
-    setAllChangesSaved(false);
-    setTimeout(() => { setLastUpdated(new Date()); setAllChangesSaved(true); }, 800);
+    setIsDirty(true);
   };
 
   const out = (field, value) => {
@@ -219,6 +224,40 @@ export function InvestigationFormPage() {
       frmAlert: value === 'yes' ? 'FRM system alert was generated.' : value === 'no' ? 'No FRM system alert was generated.' : '—',
     };
     return map[field] || '—';
+  };
+
+  const handleSaveDraft = () => {
+    setIsSaving(true);
+    setTimeout(() => {
+      setIsSaving(false);
+      setIsDirty(false);
+      toast.success('Draft saved', {
+        description: 'Your investigation report progress has been saved.',
+        duration: 3000,
+      });
+    }, 800);
+  };
+
+  const handleNavigateBack = () => {
+    if (isDirty) {
+      setPendingNavDest(`/cases/${id}`);
+      setShowExitPrompt(true);
+    } else {
+      navigate(`/cases/${id}`);
+    }
+  };
+
+  const handleDiscardAndExit = () => {
+    setShowExitPrompt(false);
+    setIsDirty(false);
+    navigate(pendingNavDest);
+  };
+
+  const handleSaveAndExit = () => {
+    setShowExitPrompt(false);
+    setIsDirty(false);
+    toast.success('Draft saved', { description: 'Your progress has been saved.', duration: 2000 });
+    setTimeout(() => navigate(pendingNavDest), 600);
   };
 
   const handleSubmit = async () => {
@@ -253,8 +292,7 @@ export function InvestigationFormPage() {
         // Apply parsed values to form state
         const newValues = matchesToFormState(result.matches);
         setF(prev => ({ ...prev, ...newValues }));
-        setAllChangesSaved(false);
-        setTimeout(() => { setLastUpdated(new Date()); setAllChangesSaved(true); }, 800);
+        setIsDirty(true);
       }
       setLogParseResult(result);
       setShowLogBanner(true);
@@ -283,26 +321,30 @@ export function InvestigationFormPage() {
         {/* Header */}
         <div className="bg-[#2064B7] px-6 py-4 flex items-center justify-between shadow-lg">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(`/cases/${id}`)} className="text-white hover:bg-white/10">
+            <Button variant="ghost" size="icon" onClick={handleNavigateBack} className="text-white hover:bg-white/10">
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
               <h1 className="text-[22px] font-bold text-white">Investigation Report</h1>
-              <p className="text-[12px] text-white/70">
-                {caseData.reference_number} • Last updated: {format(lastUpdated, 'dd/MM/yyyy hh:mm a')}
-              </p>
+              <p className="text-[12px] text-white/70">{caseData.reference_number}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 mr-4">
-              {allChangesSaved && <Check className="w-4 h-4 text-[#9AE6B4]" />}
-              <span className="text-[13px] text-white/80">{allChangesSaved ? 'All changes saved' : 'Saving...'}</span>
-            </div>
-            {currentStep === 6 && (
-              <Button className="bg-[#22C55E] hover:bg-[#16A34A] text-white font-semibold px-5" onClick={handleSubmit} disabled={isSubmitting}>
-                Submit For Review
-              </Button>
+          <div className="flex items-center gap-2">
+            {isDirty && (
+              <span className="text-[11px] font-medium text-amber-300 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full flex items-center gap-1 mr-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+                Unsaved changes
+              </span>
             )}
+            <Button
+              variant="outline"
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
+              onClick={handleSaveDraft}
+              disabled={isSaving}
+            >
+              <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
+              {isSaving ? 'Saving...' : 'Save Draft'}
+            </Button>
             <Button
               variant="outline"
               className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
@@ -311,7 +353,6 @@ export function InvestigationFormPage() {
               <Upload className="w-4 h-4" />
               Upload Activity Log
             </Button>
-            <span className="text-white font-medium text-[14px]"><span className="text-[#9AE6B4]">ProofLine</span></span>
           </div>
         </div>
 
@@ -349,6 +390,42 @@ export function InvestigationFormPage() {
               <button onClick={() => setShowLogBanner(false)} className="text-[#166534] hover:text-[#14532D]">
                 <X className="w-4 h-4" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Unsaved Changes Exit Prompt */}
+        {showExitPrompt && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200]">
+            <div className="bg-white rounded-2xl shadow-2xl w-[420px] p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-[16px] font-bold text-[#111827]">Unsaved Changes</h3>
+                  <p className="text-[13px] text-[#6B7280]">Your investigation report has unsaved changes.</p>
+                </div>
+              </div>
+              <p className="text-[13px] text-[#374151] mb-6 leading-relaxed">
+                If you leave now, your current progress will be lost. Would you like to save your draft before exiting?
+              </p>
+              <div className="flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  className="text-[#EF4444] border-[#FCA5A5] hover:bg-red-50"
+                  onClick={handleDiscardAndExit}
+                >
+                  Discard & Exit
+                </Button>
+                <Button
+                  className="bg-[#2064B7] hover:bg-[#1a5298] text-white gap-2"
+                  onClick={handleSaveAndExit}
+                >
+                  <Save className="w-4 h-4" />
+                  Save & Exit
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -748,6 +825,21 @@ export function InvestigationFormPage() {
       </div>
 
       <SubmissionSuccessDialog open={showSuccess} onClose={handleSuccessClose} />
+
+      {/* Right-edge vertical tab trigger for Transcription Panel */}
+      {!transcriptionOpen && (
+        <button
+          onClick={() => setTranscriptionOpen(true)}
+          className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex items-center gap-1.5 bg-[#2064B7] text-white px-2 py-3 rounded-l-lg shadow-lg hover:bg-[#1a53a0] transition-all hover:pr-3 group"
+          style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+        >
+          <Headphones className="w-4 h-4 rotate-90" />
+          <span className="text-[11px] font-semibold tracking-wide">Transcriptions</span>
+        </button>
+      )}
+
+      {/* Transcription Panel Sheet */}
+      <TranscriptionPanel open={transcriptionOpen} onOpenChange={setTranscriptionOpen} />
     </>
   );
 }

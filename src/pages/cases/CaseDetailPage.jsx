@@ -13,6 +13,7 @@ import {
   XCircle,
   AlertTriangle,
   ClipboardCheck,
+  Headphones,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,10 +27,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { InvestigationModal } from '@/components/modals/InvestigationModal';
+import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
 import { mockCases, fraudTypes, channels } from '@/data/mockCases';
 
 function formatCurrency(amount) {
@@ -55,6 +56,7 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [investigationModalOpen, setInvestigationModalOpen] = useState(false);
+  const [transcriptionOpen, setTranscriptionOpen] = useState(false);
 
   const caseData = mockCases.find((c) => c.id === parseInt(id));
   const isSupervisor = currentRole === 'supervisor' || currentRole === 'admin';
@@ -152,6 +154,10 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
             Actions ({caseData.actions.length})
           </TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
+          <TabsTrigger value="audio">
+            <Headphones className="w-4 h-4 mr-1" />
+            Audio Evidence
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -503,6 +509,26 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="audio">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Headphones className="h-5 w-5" />
+                Audio Evidence
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Upload call recordings and generate mock transcriptions to assist investigation reporting.
+              </p>
+              <Button onClick={() => setTranscriptionOpen(true)}>
+                <Headphones className="mr-2 h-4 w-4" />
+                Open Transcription Panel
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Investigation Modal */}
@@ -510,6 +536,11 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
         open={investigationModalOpen}
         onOpenChange={setInvestigationModalOpen}
         caseData={caseData}
+      />
+
+      <TranscriptionPanel
+        open={transcriptionOpen}
+        onOpenChange={setTranscriptionOpen}
       />
     </div>
   );
