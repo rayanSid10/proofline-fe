@@ -21,12 +21,14 @@ import { pakistaniBanks } from '@/data/constants';
 
 const initialFormState = {
   transaction_id: '',
+  stan: '',
   transaction_date: '',
   transaction_time: '',
   amount: '',
   beneficiary_account: '',
   beneficiary_bank: '',
   beneficiary_name: '',
+  beneficiary_added: 'yes',
   branch_name: '',
   branch_code: '',
   disputed_amount: '',
@@ -101,12 +103,14 @@ export function ManualTransactionModal({
     const transaction = {
       id: editTransaction?.id || `MANUAL-${Date.now()}`,
       transaction_id: form.transaction_id.trim(),
+      stan: form.stan.trim(),
       transaction_date: form.transaction_date,
       transaction_time: form.transaction_time,
       amount: parseFloat(form.amount),
       beneficiary_account: form.beneficiary_account.trim(),
       beneficiary_bank: form.beneficiary_bank,
       beneficiary_name: form.beneficiary_name.trim(),
+      beneficiary_added: form.beneficiary_added,
       branch_name: form.branch_name.trim(),
       branch_code: form.branch_code.trim(),
       disputed_amount: parseFloat(form.disputed_amount),
@@ -261,7 +265,35 @@ export function ManualTransactionModal({
             />
           </div>
 
-          {/* Row 5: Branch Info */}
+          {/* Row 5: Beneficiary Added */}
+          <div className="space-y-2">
+            <Label htmlFor="beneficiary_added">Beneficiary Added</Label>
+            <Select
+              value={form.beneficiary_added}
+              onValueChange={(value) => handleChange('beneficiary_added', value)}
+            >
+              <SelectTrigger id="beneficiary_added">
+                <SelectValue placeholder="Select value" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Yes</SelectItem>
+                <SelectItem value="no">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Row 6: STAN */}
+          <div className="space-y-2">
+            <Label htmlFor="stan">STAN</Label>
+            <Input
+              id="stan"
+              placeholder="e.g. 123456"
+              value={form.stan}
+              onChange={(e) => handleChange('stan', e.target.value)}
+            />
+          </div>
+
+          {/* Row 7: Branch Info */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="branch_name">Branch Name</Label>
@@ -283,7 +315,7 @@ export function ManualTransactionModal({
             </div>
           </div>
 
-          {/* Row 6: IMEI + FTDH */}
+          {/* Row 8: IMEI + FTDH */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="imei">IMEI / MAC Address</Label>

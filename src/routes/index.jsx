@@ -6,8 +6,8 @@ import CaseListPage from '@/pages/cases/CaseListPage';
 import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
 import CaseImportPage from '@/pages/cases/CaseImportPage';
-import InvestigationPage from '@/pages/cases/InvestigationPage';
 import InvestigationFormPage from '@/pages/cases/InvestigationFormPage';
+import SupervisorInvestigationReportPage from '@/pages/cases/SupervisorInvestigationReportPage';
 import SupervisorReviewPage from '@/pages/cases/SupervisorReviewPage';
 import ReportViewPage from '@/pages/cases/ReportViewPage';
 import FTDHInwardPage from '@/pages/ftdh/FTDHInwardPage';
@@ -21,6 +21,7 @@ import {
   canAccessFTDH,
   isBranchUser,
   isAdmin,
+  canApprove,
 } from '@/utils/permissions';
 
 /**
@@ -102,7 +103,12 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         } />
         <Route path="/cases/:id/investigation" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
-            <InvestigationPage />
+            <InvestigationFormPage />
+          </PermissionGuard>
+        } />
+        <Route path="/cases/:id/supervisor-report" element={
+          <PermissionGuard allowed={canApprove(currentRole)}>
+            <SupervisorInvestigationReportPage currentRole={currentRole} />
           </PermissionGuard>
         } />
         <Route path="/cases/:id/investigate" element={

@@ -1,4 +1,4 @@
-export const mockCases = [
+const baseMockCases = [
   {
     id: 1,
     reference_number: 'IBMB-2025-000001',
@@ -358,6 +358,66 @@ export const mockCases = [
     actions: [],
   },
 ];
+
+function formatDateRange(transactions = []) {
+  const dates = transactions
+    .map((t) => t?.transaction_date)
+    .filter(Boolean)
+    .sort();
+
+  if (dates.length === 0) return '';
+  if (dates[0] === dates[dates.length - 1]) return dates[0];
+  return `${dates[0]} to ${dates[dates.length - 1]}`;
+}
+
+function deriveTransactionPeriod(transactions = []) {
+  const monthKeys = [...new Set(transactions
+    .map((t) => t?.transaction_date)
+    .filter(Boolean)
+    .map((d) => d.slice(0, 7)))
+  ];
+
+  if (monthKeys.length === 0) return '';
+  if (monthKeys.length === 1) return monthKeys[0];
+  return `${monthKeys[0]} to ${monthKeys[monthKeys.length - 1]}`;
+}
+
+function enrichCase(caseItem) {
+  const transactions = (caseItem.transactions || []).map((tx) => ({
+    ...tx,
+    beneficiary_added: tx.beneficiary_added ?? 'yes',
+  }));
+
+  const txCount = transactions.length;
+  const dateRange = formatDateRange(transactions);
+  const totalDisputedAmount = caseItem.total_disputed_amount || 0;
+  const hasFtdhAction = (caseItem.actions || []).some((a) => a.action_type === 'ftdh_filed');
+
+  return {
+    ...caseItem,
+    transactions,
+    scenario: caseItem.scenario || `Scenario ${caseItem.id <= 2 ? caseItem.id : 'Custom'}`,
+    investigation_officer: caseItem.investigation_officer || caseItem.assigned_to?.name || 'Unassigned',
+    case_receiving_channel: caseItem.case_receiving_channel || caseItem.channel,
+    dispute_channel: caseItem.dispute_channel || caseItem.channel,
+    branch_code: caseItem.branch_code || String(caseItem.customer?.account_number || '').slice(0, 4) || 'N/A',
+    customer_reported_late: caseItem.customer_reported_late || 'yes',
+    date_incident_occurred: caseItem.date_incident_occurred || dateRange,
+    transaction_period: caseItem.transaction_period || deriveTransactionPeriod(transactions),
+    disputed_transaction_details:
+      caseItem.disputed_transaction_details || (dateRange ? `${dateRange} (${txCount} Transactions)` : ''),
+    no_of_transactions: caseItem.no_of_transactions || txCount,
+    dispute_amount_at_risk: caseItem.dispute_amount_at_risk || totalDisputedAmount,
+    fms_alert_generated:
+      caseItem.fms_alert_generated || (['ato', 'sim_swap'].includes(caseItem.fraud_type) ? 'yes' : 'no'),
+    expected_recovery_onus: caseItem.expected_recovery_onus || 'NIL',
+    expected_recovery_member_bank: caseItem.expected_recovery_member_bank || 'NIL',
+    ftdh_filled: caseItem.ftdh_filled || (hasFtdhAction ? 'yes' : 'no'),
+    ftdh_id: caseItem.ftdh_id || '',
+  };
+}
+
+export const mockCases = baseMockCases.map(enrichCase);
 
 export const fraudTypes = [
   { value: 'scam_investment', label: 'SCAM - Online Investment' },

@@ -188,8 +188,10 @@ function AccountTransactionSection({
                       />
                     </TableHead>
                     <TableHead>Transaction ID</TableHead>
+                    <TableHead>STAN</TableHead>
                     <TableHead>Date & Time</TableHead>
                     <TableHead>Channel</TableHead>
+                    <TableHead>Beneficiary Added</TableHead>
                     <TableHead>Beneficiary</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                   </TableRow>
@@ -206,10 +208,14 @@ function AccountTransactionSection({
                       <TableCell className="font-mono text-sm">
                         {txn.transaction_id}
                       </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {txn.stan || '—'}
+                      </TableCell>
                       <TableCell>
                         {txn.transaction_date} {txn.transaction_time?.slice(0, 5)}
                       </TableCell>
                       <TableCell>{txn.channel}</TableCell>
+                      <TableCell>{String(txn.beneficiary_added || '—').toUpperCase()}</TableCell>
                       <TableCell>
                         <DataMasker value={txn.beneficiary_account} type="account" />
                         <span className="text-sm text-muted-foreground ml-1">
@@ -254,9 +260,24 @@ export function CreateCasePage() {
 
   // Step 3: Case Details
   const [caseDetails, setCaseDetails] = useState({
+    scenario: '',
+    investigationOfficer: '',
+    complaintNo: '',
+    caseReceivingChannel: '',
     caseReceivedDate: format(new Date(), 'yyyy-MM-dd'),
+    branchCode: '',
+    customerReportedLate: '',
     channel: '',
     fraudType: '',
+    fmsAlertGenerated: '',
+    expectedRecoveryOnUs: '',
+    expectedRecoveryMemberBank: '',
+    dateIncidentOccurred: '',
+    transactionPeriod: '',
+    disputedTransactionDetails: '',
+    noOfTransactions: '',
+    disputeAmountAtRisk: '',
+    ftdhFilled: '',
     ftdhId: '',
     notes: '',
   });
@@ -376,9 +397,12 @@ export function CreateCasePage() {
     0
   );
 
-  const canProceedToStep2 = selectedCustomer !== null;
   const canProceedToStep3 = allSelectedTxns.length > 0;
-  const canProceedToStep4 = caseDetails.channel && caseDetails.fraudType;
+  const canProceedToStep4 =
+    caseDetails.complaintNo &&
+    caseDetails.caseReceivingChannel &&
+    caseDetails.channel &&
+    caseDetails.fraudType;
 
   // ─── Submit ───────────────────────────────────────────────────────────
 
@@ -496,6 +520,87 @@ export function CreateCasePage() {
                 </Button>
               </div>
             )}
+
+            <div className="rounded-lg border p-4 space-y-4">
+              <h4 className="font-medium">POC Intake (Manual)</h4>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="scenario">Scenario</Label>
+                  <Input
+                    id="scenario"
+                    placeholder="e.g. Scenario 1"
+                    value={caseDetails.scenario}
+                    onChange={(e) => setCaseDetails({ ...caseDetails, scenario: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="investigationOfficer">Investigation Officer</Label>
+                  <Input
+                    id="investigationOfficer"
+                    placeholder="Enter investigator name"
+                    value={caseDetails.investigationOfficer}
+                    onChange={(e) =>
+                      setCaseDetails({ ...caseDetails, investigationOfficer: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="complaintNo">Complaint No *</Label>
+                  <Input
+                    id="complaintNo"
+                    placeholder="e.g. CC-2025-02145"
+                    value={caseDetails.complaintNo}
+                    onChange={(e) => setCaseDetails({ ...caseDetails, complaintNo: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="caseReceivingChannel">Case Receiving Channel *</Label>
+                  <Select
+                    value={caseDetails.caseReceivingChannel}
+                    onValueChange={(value) =>
+                      setCaseDetails({ ...caseDetails, caseReceivingChannel: value })
+                    }
+                  >
+                    <SelectTrigger id="caseReceivingChannel">
+                      <SelectValue placeholder="Select receiving channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {channels.map((channel) => (
+                        <SelectItem key={channel.value} value={channel.value}>
+                          {channel.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branchCode">Branch Code</Label>
+                  <Input
+                    id="branchCode"
+                    placeholder="e.g. 0606"
+                    value={caseDetails.branchCode}
+                    onChange={(e) => setCaseDetails({ ...caseDetails, branchCode: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="customerReportedLate">Customer Reported Late</Label>
+                  <Select
+                    value={caseDetails.customerReportedLate}
+                    onValueChange={(value) =>
+                      setCaseDetails({ ...caseDetails, customerReportedLate: value })
+                    }
+                  >
+                    <SelectTrigger id="customerReportedLate">
+                      <SelectValue placeholder="Select value" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -564,7 +669,9 @@ export function CreateCasePage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Transaction ID</TableHead>
+                        <TableHead>STAN</TableHead>
                         <TableHead>Date & Time</TableHead>
+                        <TableHead>Beneficiary Added</TableHead>
                         <TableHead>Beneficiary</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                         <TableHead className="text-right">Disputed</TableHead>
@@ -577,9 +684,11 @@ export function CreateCasePage() {
                           <TableCell className="font-mono text-sm">
                             {txn.transaction_id}
                           </TableCell>
+                          <TableCell className="font-mono text-sm">{txn.stan || '—'}</TableCell>
                           <TableCell>
                             {txn.transaction_date} {txn.transaction_time?.slice(0, 5)}
                           </TableCell>
+                          <TableCell>{String(txn.beneficiary_added || '—').toUpperCase()}</TableCell>
                           <TableCell>
                             <DataMasker value={txn.beneficiary_account} type="account" />
                             <span className="text-sm text-muted-foreground ml-1">
@@ -693,15 +802,27 @@ export function CreateCasePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="channel">Channel *</Label>
+                <Label htmlFor="dateIncidentOccurred">Date(s) Incident Occurred</Label>
+                <Input
+                  id="dateIncidentOccurred"
+                  placeholder="e.g. 2025-12-10 to 2026-01-15"
+                  value={caseDetails.dateIncidentOccurred}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, dateIncidentOccurred: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="disputeChannel">Dispute Channel *</Label>
                 <Select
                   value={caseDetails.channel}
                   onValueChange={(value) =>
                     setCaseDetails({ ...caseDetails, channel: value })
                   }
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select channel" />
+                  <SelectTrigger id="disputeChannel">
+                    <SelectValue placeholder="Select dispute channel" />
                   </SelectTrigger>
                   <SelectContent>
                     {channels.map((channel) => (
@@ -721,7 +842,7 @@ export function CreateCasePage() {
                     setCaseDetails({ ...caseDetails, fraudType: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="fraudType">
                     <SelectValue placeholder="Select fraud type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -730,6 +851,106 @@ export function CreateCasePage() {
                         {type.label}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="transactionPeriod">Transaction Period</Label>
+                <Input
+                  id="transactionPeriod"
+                  placeholder="e.g. Dec-Jan"
+                  value={caseDetails.transactionPeriod}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, transactionPeriod: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="noOfTransactions">No. of Transactions</Label>
+                <Input
+                  id="noOfTransactions"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 5"
+                  value={caseDetails.noOfTransactions}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, noOfTransactions: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="disputeAmountAtRisk">Dispute Amount At Risk (PKR)</Label>
+                <Input
+                  id="disputeAmountAtRisk"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 375000"
+                  value={caseDetails.disputeAmountAtRisk}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, disputeAmountAtRisk: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="fmsAlertGenerated">FMS Alert Generated</Label>
+                <Select
+                  value={caseDetails.fmsAlertGenerated}
+                  onValueChange={(value) =>
+                    setCaseDetails({ ...caseDetails, fmsAlertGenerated: value })
+                  }
+                >
+                  <SelectTrigger id="fmsAlertGenerated">
+                    <SelectValue placeholder="Select value" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="expectedRecoveryOnUs">Expected Recovery From ON-US Beneficiary</Label>
+                <Input
+                  id="expectedRecoveryOnUs"
+                  placeholder="e.g. NIL"
+                  value={caseDetails.expectedRecoveryOnUs}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, expectedRecoveryOnUs: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="expectedRecoveryMemberBank">Expected Recovery From Member / Bank Beneficiary</Label>
+                <Input
+                  id="expectedRecoveryMemberBank"
+                  placeholder="e.g. NIL / Pending"
+                  value={caseDetails.expectedRecoveryMemberBank}
+                  onChange={(e) =>
+                    setCaseDetails({ ...caseDetails, expectedRecoveryMemberBank: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ftdhFilled">FTDH Filled</Label>
+                <Select
+                  value={caseDetails.ftdhFilled}
+                  onValueChange={(value) =>
+                    setCaseDetails({ ...caseDetails, ftdhFilled: value })
+                  }
+                >
+                  <SelectTrigger id="ftdhFilled">
+                    <SelectValue placeholder="Select value" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -745,6 +966,19 @@ export function CreateCasePage() {
                   }
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="disputedTransactionDetails">Disputed Transaction Details</Label>
+              <Textarea
+                id="disputedTransactionDetails"
+                placeholder="e.g. 10-Dec-2024 to 15-Jan-2025 (5 Transactions)"
+                rows={3}
+                value={caseDetails.disputedTransactionDetails}
+                onChange={(e) =>
+                  setCaseDetails({ ...caseDetails, disputedTransactionDetails: e.target.value })
+                }
+              />
             </div>
 
             <div className="space-y-2">
@@ -892,11 +1126,29 @@ export function CreateCasePage() {
               </div>
               <div className="p-4 border rounded-lg grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
+                  <span className="text-muted-foreground">Scenario</span>
+                  <p className="font-medium">{caseDetails.scenario || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Investigation Officer</span>
+                  <p className="font-medium">{caseDetails.investigationOfficer || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Complaint No</span>
+                  <p className="font-medium">{caseDetails.complaintNo || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Case Receiving Channel</span>
+                  <p className="font-medium">
+                    {channels.find((c) => c.value === caseDetails.caseReceivingChannel)?.label || '—'}
+                  </p>
+                </div>
+                <div>
                   <span className="text-muted-foreground">Received Date</span>
                   <p className="font-medium">{caseDetails.caseReceivedDate}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Channel</span>
+                  <span className="text-muted-foreground">Dispute Channel</span>
                   <p className="font-medium">
                     {channels.find((c) => c.value === caseDetails.channel)?.label}
                   </p>
@@ -907,6 +1159,50 @@ export function CreateCasePage() {
                     {fraudTypes.find((t) => t.value === caseDetails.fraudType)?.label}
                   </p>
                 </div>
+                <div>
+                  <span className="text-muted-foreground">Branch Code</span>
+                  <p className="font-medium">{caseDetails.branchCode || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Customer Reported Late</span>
+                  <p className="font-medium">{caseDetails.customerReportedLate || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Date(s) Incident Occurred</span>
+                  <p className="font-medium">{caseDetails.dateIncidentOccurred || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Transaction Period</span>
+                  <p className="font-medium">{caseDetails.transactionPeriod || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">No. of Transactions</span>
+                  <p className="font-medium">{caseDetails.noOfTransactions || allSelectedTxns.length || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Dispute Amount At Risk</span>
+                  <p className="font-medium">
+                    {caseDetails.disputeAmountAtRisk
+                      ? formatCurrency(Number(caseDetails.disputeAmountAtRisk))
+                      : formatCurrency(totalDisputedAmount)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">FMS Alert Generated</span>
+                  <p className="font-medium">{caseDetails.fmsAlertGenerated || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Expected Recovery (ON-US)</span>
+                  <p className="font-medium">{caseDetails.expectedRecoveryOnUs || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Expected Recovery (Member/Bank)</span>
+                  <p className="font-medium">{caseDetails.expectedRecoveryMemberBank || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">FTDH Filled</span>
+                  <p className="font-medium">{caseDetails.ftdhFilled || '—'}</p>
+                </div>
                 {caseDetails.ftdhId && (
                   <div>
                     <span className="text-muted-foreground">FTDH ID</span>
@@ -914,6 +1210,12 @@ export function CreateCasePage() {
                   </div>
                 )}
               </div>
+              {caseDetails.disputedTransactionDetails && (
+                <div className="p-4 border rounded-lg text-sm">
+                  <span className="text-muted-foreground">Disputed Transaction Details</span>
+                  <p className="mt-1">{caseDetails.disputedTransactionDetails}</p>
+                </div>
+              )}
               {caseDetails.notes && (
                 <div className="p-4 border rounded-lg text-sm">
                   <span className="text-muted-foreground">Notes</span>
