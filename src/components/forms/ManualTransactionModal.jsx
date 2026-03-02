@@ -1,23 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  DialogClose,
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { pakistaniBanks } from '@/data/constants';
+import { CalendarDays, Clock3, Search, X } from 'lucide-react';
 
 const initialFormState = {
   transaction_id: '',
@@ -32,6 +22,7 @@ const initialFormState = {
   branch_name: '',
   branch_code: '',
   disputed_amount: '',
+  ip_address: '',
   imei: '',
   ftdh_id: '',
 };
@@ -53,10 +44,33 @@ export function ManualTransactionModal({
 }) {
   const [form, setForm] = useState(
     editTransaction
-      ? { ...editTransaction, amount: String(editTransaction.amount), disputed_amount: String(editTransaction.disputed_amount) }
+      ? {
+          ...initialFormState,
+          ...editTransaction,
+          amount: String(editTransaction.amount ?? ''),
+          disputed_amount: String(editTransaction.disputed_amount ?? editTransaction.amount ?? ''),
+        }
       : { ...initialFormState }
   );
   const [errors, setErrors] = useState({});
+  const dateRef = useRef(null);
+  const timeRef = useRef(null);
+
+  useEffect(() => {
+    if (open) {
+      setForm(
+        editTransaction
+          ? {
+              ...initialFormState,
+              ...editTransaction,
+              amount: String(editTransaction.amount ?? ''),
+              disputed_amount: String(editTransaction.disputed_amount ?? editTransaction.amount ?? ''),
+            }
+          : { ...initialFormState }
+      );
+      setErrors({});
+    }
+  }, [open, editTransaction]);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -83,7 +97,7 @@ export function ManualTransactionModal({
     }
 
     if (!form.beneficiary_account.trim()) newErrors.beneficiary_account = 'Required';
-    if (!form.beneficiary_bank) newErrors.beneficiary_bank = 'Required';
+    if (!form.beneficiary_bank.trim()) newErrors.beneficiary_bank = 'Required';
 
     const disputed = parseFloat(form.disputed_amount);
     if (!form.disputed_amount || isNaN(disputed) || disputed <= 0) {
@@ -91,6 +105,12 @@ export function ManualTransactionModal({
     } else if (!isNaN(amount) && disputed > amount) {
       newErrors.disputed_amount = 'Cannot exceed transaction amount';
     }
+
+    if (!form.branch_name.trim()) newErrors.branch_name = 'Required';
+    if (!form.branch_code.trim()) newErrors.branch_code = 'Required';
+    if (!form.ip_address.trim()) newErrors.ip_address = 'Required';
+    if (!form.imei.trim()) newErrors.imei = 'Required';
+    if (!form.ftdh_id.trim()) newErrors.ftdh_id = 'Required';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -108,12 +128,13 @@ export function ManualTransactionModal({
       transaction_time: form.transaction_time,
       amount: parseFloat(form.amount),
       beneficiary_account: form.beneficiary_account.trim(),
-      beneficiary_bank: form.beneficiary_bank,
+      beneficiary_bank: form.beneficiary_bank.trim(),
       beneficiary_name: form.beneficiary_name.trim(),
       beneficiary_added: form.beneficiary_added,
       branch_name: form.branch_name.trim(),
       branch_code: form.branch_code.trim(),
       disputed_amount: parseFloat(form.disputed_amount),
+      ip_address: form.ip_address.trim(),
       imei: form.imei.trim(),
       ftdh_id: form.ftdh_id.trim(),
       channel: 'Manual',
@@ -134,218 +155,141 @@ export function ManualTransactionModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {editTransaction ? 'Edit Transaction' : 'Add Manual Transaction'}
-          </DialogTitle>
-          <DialogDescription>
-            Enter the disputed transaction details manually.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        showCloseButton={false}
+        className="!w-[722px] h-[761px] !max-w-[95vw] md:!max-w-[722px] max-h-[95vh] rounded-[15px] border-2 border-[#DAE1E7] p-0 overflow-x-hidden overflow-y-hidden"
+      >
+        <div className="h-[10px] bg-[#2064B7]" />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Row 1: Transaction ID + Date + Time */}
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="txn_id">Transaction ID *</Label>
-              <Input
-                id="txn_id"
-                placeholder="e.g. TXN20250115001"
-                value={form.transaction_id}
-                onChange={(e) => handleChange('transaction_id', e.target.value)}
-              />
-              {errors.transaction_id && (
-                <p className="text-xs text-destructive">{errors.transaction_id}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="txn_date">Transaction Date *</Label>
-              <Input
-                id="txn_date"
-                type="date"
-                value={form.transaction_date}
-                onChange={(e) => handleChange('transaction_date', e.target.value)}
-              />
-              {errors.transaction_date && (
-                <p className="text-xs text-destructive">{errors.transaction_date}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="txn_time">Transaction Time *</Label>
-              <Input
-                id="txn_time"
-                type="time"
-                value={form.transaction_time}
-                onChange={(e) => handleChange('transaction_time', e.target.value)}
-              />
-              {errors.transaction_time && (
-                <p className="text-xs text-destructive">{errors.transaction_time}</p>
-              )}
-            </div>
-          </div>
+        <div className="relative p-6 h-[calc(100%-10px)] overflow-y-auto overflow-x-hidden">
+          <DialogClose className="absolute right-5 top-4 text-[#AFAFAF] hover:text-[#4C4C4C]">
+            <X className="h-6 w-6" />
+          </DialogClose>
 
-          {/* Row 2: Amount + Disputed Amount */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="amount">Transaction Amount (PKR) *</Label>
-              <Input
-                id="amount"
-                type="number"
-                min="1"
-                placeholder="e.g. 50000"
-                value={form.amount}
-                onChange={(e) => handleChange('amount', e.target.value)}
-              />
-              {errors.amount && (
-                <p className="text-xs text-destructive">{errors.amount}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="disputed_amount">Exposure / Dispute Amount (PKR) *</Label>
-              <Input
-                id="disputed_amount"
-                type="number"
-                min="1"
-                placeholder="Must be ≤ transaction amount"
-                value={form.disputed_amount}
-                onChange={(e) => handleChange('disputed_amount', e.target.value)}
-              />
-              {errors.disputed_amount && (
-                <p className="text-xs text-destructive">{errors.disputed_amount}</p>
-              )}
-            </div>
-          </div>
+          <h3 className="text-[24px] font-semibold text-[#4C4C4C] text-center">
+            Transaction Details
+          </h3>
+          <p className="text-[16px] text-[#8C8C8C] text-center mb-4">
+            Transaction and dispute information
+          </p>
 
-          {/* Row 3: Beneficiary Info */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="ben_account">Beneficiary Account *</Label>
-              <Input
-                id="ben_account"
-                placeholder="e.g. 1122334455667"
-                value={form.beneficiary_account}
-                onChange={(e) => handleChange('beneficiary_account', e.target.value)}
-              />
-              {errors.beneficiary_account && (
-                <p className="text-xs text-destructive">{errors.beneficiary_account}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ben_bank">Beneficiary Bank *</Label>
-              <Select
-                value={form.beneficiary_bank}
-                onValueChange={(value) => handleChange('beneficiary_bank', value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select bank" />
-                </SelectTrigger>
-                <SelectContent>
-                  {pakistaniBanks.map((bank) => (
-                    <SelectItem key={bank.value} value={bank.value}>
-                      {bank.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.beneficiary_bank && (
-                <p className="text-xs text-destructive">{errors.beneficiary_bank}</p>
-              )}
-            </div>
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="grid grid-cols-1 md:[grid-template-columns:283px_283px] md:justify-center gap-x-7 gap-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="txn_id" className="text-[16px] text-[#4C4C4C]">Transaction ID<span className="text-[#c22e1f]">*</span></Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#AFAFAF]" />
+                  <Input
+                    id="txn_id"
+                    placeholder="Enter ID"
+                    value={form.transaction_id}
+                    onChange={(e) => handleChange('transaction_id', e.target.value)}
+                    className="w-full md:w-[283px] h-[47px] pl-9 bg-[#F9FAFB] border-[#DAE1E7] text-[16px]"
+                  />
+                </div>
+                {errors.transaction_id && <p className="text-xs text-destructive">{errors.transaction_id}</p>}
+              </div>
 
-          {/* Row 4: Beneficiary Name */}
-          <div className="space-y-2">
-            <Label htmlFor="ben_name">Beneficiary Name</Label>
-            <Input
-              id="ben_name"
-              placeholder="e.g. John Doe"
-              value={form.beneficiary_name}
-              onChange={(e) => handleChange('beneficiary_name', e.target.value)}
-            />
-          </div>
+              <div className="space-y-1">
+                <Label htmlFor="txn_date" className="text-[16px] text-[#4C4C4C]">Transaction Date<span className="text-[#c22e1f]">*</span></Label>
+                <div className="relative">
+                  <button type="button" onClick={() => dateRef.current?.showPicker?.()} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#AFAFAF]">
+                    <CalendarDays className="h-5 w-5" />
+                  </button>
+                  <Input
+                    ref={dateRef}
+                    id="txn_date"
+                    type="date"
+                    value={form.transaction_date}
+                    onChange={(e) => handleChange('transaction_date', e.target.value)}
+                    className="no-native-picker w-full md:w-[283px] h-[47px] pl-10 bg-[#F9FAFB] border-[#DAE1E7] text-[16px] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+                    style={{ WebkitAppearance: 'none', appearance: 'none' }}
+                  />
+                </div>
+                {errors.transaction_date && <p className="text-xs text-destructive">{errors.transaction_date}</p>}
+              </div>
 
-          {/* Row 5: Beneficiary Added */}
-          <div className="space-y-2">
-            <Label htmlFor="beneficiary_added">Beneficiary Added</Label>
-            <Select
-              value={form.beneficiary_added}
-              onValueChange={(value) => handleChange('beneficiary_added', value)}
-            >
-              <SelectTrigger id="beneficiary_added">
-                <SelectValue placeholder="Select value" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="yes">Yes</SelectItem>
-                <SelectItem value="no">No</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <div className="space-y-1">
+                <Label htmlFor="txn_time" className="text-[16px] text-[#4C4C4C]">Transaction Time<span className="text-[#c22e1f]">*</span></Label>
+                <div className="relative">
+                  <button type="button" onClick={() => timeRef.current?.showPicker?.()} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#AFAFAF]">
+                    <Clock3 className="h-5 w-5" />
+                  </button>
+                  <Input
+                    ref={timeRef}
+                    id="txn_time"
+                    type="time"
+                    value={form.transaction_time}
+                    onChange={(e) => handleChange('transaction_time', e.target.value)}
+                    className="no-native-picker w-full md:w-[283px] h-[47px] pl-10 bg-[#F9FAFB] border-[#DAE1E7] text-[16px] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+                    style={{ WebkitAppearance: 'none', appearance: 'none' }}
+                  />
+                </div>
+                {errors.transaction_time && <p className="text-xs text-destructive">{errors.transaction_time}</p>}
+              </div>
 
-          {/* Row 6: STAN */}
-          <div className="space-y-2">
-            <Label htmlFor="stan">STAN</Label>
-            <Input
-              id="stan"
-              placeholder="e.g. 123456"
-              value={form.stan}
-              onChange={(e) => handleChange('stan', e.target.value)}
-            />
-          </div>
+              <div className="space-y-1">
+                <Label htmlFor="amount" className="text-[16px] text-[#4C4C4C]">Transaction Amount<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="amount" type="number" min="1" placeholder="xxxxxxxxxx" value={form.amount} onChange={(e) => handleChange('amount', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
+              </div>
 
-          {/* Row 7: Branch Info */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="branch_name">Branch Name</Label>
-              <Input
-                id="branch_name"
-                placeholder="Optional"
-                value={form.branch_name}
-                onChange={(e) => handleChange('branch_name', e.target.value)}
-              />
+              <div className="space-y-1">
+                <Label htmlFor="ben_account" className="text-[16px] text-[#4C4C4C]">Beneficiary Account Number<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="ben_account" placeholder="xxxx xxxx xxxx xxxx" value={form.beneficiary_account} onChange={(e) => handleChange('beneficiary_account', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.beneficiary_account && <p className="text-xs text-destructive">{errors.beneficiary_account}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="ben_bank" className="text-[16px] text-[#4C4C4C]">Beneficiary Bank Name<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="ben_bank" placeholder="Bank Name" value={form.beneficiary_bank} onChange={(e) => handleChange('beneficiary_bank', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.beneficiary_bank && <p className="text-xs text-destructive">{errors.beneficiary_bank}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="branch_name" className="text-[16px] text-[#4C4C4C]">Branch Name<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="branch_name" placeholder="Branch Name" value={form.branch_name} onChange={(e) => handleChange('branch_name', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.branch_name && <p className="text-xs text-destructive">{errors.branch_name}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="branch_code" className="text-[16px] text-[#4C4C4C]">Branch Code<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="branch_code" placeholder="Branch Code" value={form.branch_code} onChange={(e) => handleChange('branch_code', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.branch_code && <p className="text-xs text-destructive">{errors.branch_code}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="disputed_amount" className="text-[16px] text-[#4C4C4C]">Exposure/Dispute Amount<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="disputed_amount" type="number" min="1" placeholder="Enter Amount" value={form.disputed_amount} onChange={(e) => handleChange('disputed_amount', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.disputed_amount && <p className="text-xs text-destructive">{errors.disputed_amount}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="ip_address" className="text-[16px] text-[#4C4C4C]">IP Address<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="ip_address" placeholder="IP Address" value={form.ip_address} onChange={(e) => handleChange('ip_address', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.ip_address && <p className="text-xs text-destructive">{errors.ip_address}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="imei" className="text-[16px] text-[#4C4C4C]">IMEI # MAC Address<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="imei" placeholder="Mac Address" value={form.imei} onChange={(e) => handleChange('imei', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.imei && <p className="text-xs text-destructive">{errors.imei}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="ftdh_id" className="text-[16px] text-[#4C4C4C]">FTDH ID<span className="text-[#c22e1f]">*</span></Label>
+                <Input id="ftdh_id" placeholder="Enter FTDH ID" value={form.ftdh_id} onChange={(e) => handleChange('ftdh_id', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
+                {errors.ftdh_id && <p className="text-xs text-destructive">{errors.ftdh_id}</p>}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="branch_code">Branch Code</Label>
-              <Input
-                id="branch_code"
-                placeholder="Optional"
-                value={form.branch_code}
-                onChange={(e) => handleChange('branch_code', e.target.value)}
-              />
-            </div>
-          </div>
 
-          {/* Row 8: IMEI + FTDH */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="imei">IMEI / MAC Address</Label>
-              <Input
-                id="imei"
-                placeholder="Optional"
-                value={form.imei}
-                onChange={(e) => handleChange('imei', e.target.value)}
-              />
+            <div className="flex items-center justify-center pt-2">
+              <Button type="submit" className="h-[42px] min-w-[132px] bg-[#2592ff] hover:bg-[#1e8fff] text-[20px] font-medium">
+                {editTransaction ? 'Update' : 'Add'}
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="ftdh_id">FTDH ID</Label>
-              <Input
-                id="ftdh_id"
-                placeholder="Optional"
-                value={form.ftdh_id}
-                onChange={(e) => handleChange('ftdh_id', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button type="submit">
-              {editTransaction ? 'Update Transaction' : 'Add Transaction'}
-            </Button>
-          </DialogFooter>
-        </form>
+          </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

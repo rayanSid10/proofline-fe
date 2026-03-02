@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ArrowLeft, ArrowRight, Check, Cloud, X, FileText, Eye, Trash2, Upload, Sparkles, CheckCircle2, Save, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Cloud, X, FileText, Eye, Trash2, Upload, Sparkles, CheckCircle2, Save, AlertTriangle, CalendarDays, Headphones } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,6 @@ import { SubmissionSuccessDialog } from '@/components/modals/SubmissionSuccessDi
 import { getAllCases } from '@/data/caseStorage';
 import { parseActivityLog, matchesToFormState } from '@/utils/parseActivityLog';
 import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
-import { Headphones } from 'lucide-react';
 
 // ─── Icons (matching InvestigationModal) ──────────────────────────────────────
 const ComplaintIcon = ({ active }) => (
@@ -120,6 +119,37 @@ const SectionDivider = ({ title }) => (
 
 const ReadOnlyValue = ({ value }) => <span className="text-[13px] text-[#374151]">{value || '—'}</span>;
 
+const DateInputWithIcon = ({ type = 'date', value, onChange, placeholder }) => {
+  const inputRef = useRef(null);
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.showPicker?.();
+    input.focus();
+  };
+
+  return (
+    <div className="relative w-full h-full">
+      <button
+        type="button"
+        onClick={openPicker}
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#2064B7] z-10"
+      >
+        <CalendarDays className="w-4 h-4" />
+      </button>
+      <Input
+        ref={inputRef}
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="no-native-picker w-full h-full border-0 bg-transparent focus-visible:ring-0 pl-10 pr-4 py-2.5 rounded-none text-[13px] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+        style={{ WebkitAppearance: 'none', appearance: 'none' }}
+      />
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function InvestigationFormPage() {
   const { id } = useParams();
@@ -145,14 +175,16 @@ export function InvestigationFormPage() {
   const [f, setF] = useState({
     // Step 1: Customer / Complaint Details
     investigationOfficer: '', complaintNo: '', caseReferenceNo: '', caseReceivingChannel: '',
-    disputeAmountAtRisk: '', expectedRecovery: 'NIL', disputedTxnDetails: '', fmsAlertGenerated: 'no',
+    disputeAmountAtRisk: '', expectedRecovery: 'NIL', expectedRecoveryMemberBank: 'NIL', disputedTxnDetails: '', fmsAlertGenerated: 'no',
     incidentDate: '', caseReceivingDate: '',
+    customerNameField: '', customerAccountNoField: '', branchCodeField: '',
     // Step 2: Investigation — Customer Contact
     cxCallDatetime: '', initialCustomerStance: '', ioCallMade: '', contactEstablished: '',
     customerCli: '', rcChannel: '', ioCallDatetime: '', letterSent: '',
     ioCallStance: '', simBlocked: '',
     // Step 2: Channel & Device Analysis
     mbCreationDatetime: '', dcCreationDatetime: '', ccCreationDatetime: '', mbCreationSource: '',
+    hblMobileAppActivityReview: '', userSinceDatetime: '',
     initialDeviceId: '', loginId: '', loginIp: '', credentialChange: 'no',
     tpinChange: 'no', newDevice: 'no',
     // Step 2: Limits & Behavioral Analysis
@@ -182,20 +214,30 @@ export function InvestigationFormPage() {
       caseReceivingChannel: ch || '',
       disputeAmountAtRisk: caseData.total_disputed_amount ? formatCurrency(caseData.total_disputed_amount) : '',
       disputedTxnDetails: `${minD} to ${maxD}`,
-      incidentDate: caseData.case_received_date ? format(new Date(caseData.case_received_date), 'dd/MM/yyyy') : '',
-      caseReceivingDate: caseData.case_received_date ? format(new Date(caseData.case_received_date), 'dd/MM/yyyy') : '',
+      incidentDate: caseData.case_received_date || '',
+      caseReceivingDate: caseData.case_received_date || '',
+      customerNameField: caseData.customer?.name || '',
+      customerAccountNoField: caseData.customer?.account_number || '',
+      branchCodeField: caseData.branch_code || String(caseData.customer?.account_number || '').slice(0, 4) || '',
       customerCli: caseData.customer?.mobile || '',
       rootCause: caseData.fraud_type === 'sim_swap' ? 'SIM Swap Fraud' : caseData.fraud_type === 'social_engineering' ? 'Social Engineering' : caseData.fraud_type === 'phishing' ? 'Phishing Attack' : '',
       fraudTypeSystem: caseData.fraud_type ? caseData.fraud_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : '',
       // Simulated auto-populated device/channel data
-      mbCreationDatetime: '01-Jan-2024 10:20', dcCreationDatetime: '03-Jan-2022 11:00',
-      ccCreationDatetime: 'Not Applicable', mbCreationSource: 'Debit Card',
+      mbCreationDatetime: '', dcCreationDatetime: '',
+      ccCreationDatetime: '', mbCreationSource: 'Debit Card',
+      hblMobileAppActivityReview: '', userSinceDatetime: '',
       initialDeviceId: 'Vivo-V4521', loginId: 'mhassan1212',
       loginIp: 'Same IP range', previousLimit: 'PKR 1,000,000',
       newLimit: 'PKR 1,000,000', txnPattern: 'Normal vs history',
       productsAvailed: 'Auto Loan', otpDelivered: 'yes',
     }));
   }, [caseData]);
+
+  useEffect(() => {
+    if (currentStep !== 2 && transcriptionOpen) {
+      setTranscriptionOpen(false);
+    }
+  }, [currentStep, transcriptionOpen]);
 
   const set = (key, val) => {
     setF(p => ({ ...p, [key]: val }));
@@ -222,6 +264,7 @@ export function InvestigationFormPage() {
       deviceChange: value === 'yes' ? 'Change in device detail detected.' : value === 'no' ? 'No change in device detail.' : '—',
       ipChange: value === 'yes' ? 'Change of IP / location detected.' : value === 'no' ? 'No change in IP / location.' : '—',
       frmAlert: value === 'yes' ? 'FRM system alert was generated.' : value === 'no' ? 'No FRM system alert was generated.' : '—',
+      hblMobileAppActivityReview: value === 'yes' ? 'HBL Mobile Application channel activity reviewed.' : value === 'no' ? 'HBL Mobile Application channel activity not reviewed.' : '—',
     };
     return map[field] || '—';
   };
@@ -471,6 +514,9 @@ export function InvestigationFormPage() {
                 <FormField isInput label="Expected Recovery From ON-US Beneficiary" output="No recovery expected from On-us customer accounts">
                   <Input value={f.expectedRecovery} onChange={e => set('expectedRecovery', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
+                <FormField isInput label="Expected Recovery from Member/Bank Beneficiary" output={f.expectedRecoveryMemberBank || '—'}>
+                  <Input value={f.expectedRecoveryMemberBank} onChange={e => set('expectedRecoveryMemberBank', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField isInput label="Disputed Transaction Details" large output={
                   <div className="w-full">
                     <div className="bg-white border border-[#E5E7EB] rounded-lg p-2 text-[10px]">
@@ -496,11 +542,20 @@ export function InvestigationFormPage() {
                     <ChipOption value="no" selected={f.fmsAlertGenerated==='no'} onChange={v => set('fmsAlertGenerated', v)} label="No" />
                   </div>
                 </FormField>
+                <FormField isInput label="Customer Name" output={f.customerNameField || '—'}>
+                  <Input value={f.customerNameField} onChange={e => set('customerNameField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Customer Account No" output={f.customerAccountNoField || '—'}>
+                  <Input value={f.customerAccountNoField} onChange={e => set('customerAccountNoField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Branch Code" output={f.branchCodeField || '—'}>
+                  <Input value={f.branchCodeField} onChange={e => set('branchCodeField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField isInput label="Date(s) Incident Occurred" output={`Disputed transactions debited on ${f.incidentDate}`}>
-                  <Input value={f.incidentDate} onChange={e => set('incidentDate', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" placeholder="dd/mm/yyyy" />
+                  <DateInputWithIcon type="date" value={f.incidentDate} onChange={e => set('incidentDate', e.target.value)} placeholder="dd/mm/yyyy" />
                 </FormField>
                 <FormField isInput label="Case Receiving Date" output={`Customer called bank helpline on ${f.caseReceivingDate}`}>
-                  <Input value={f.caseReceivingDate} onChange={e => set('caseReceivingDate', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" placeholder="dd/mm/yyyy" />
+                  <DateInputWithIcon type="date" value={f.caseReceivingDate} onChange={e => set('caseReceivingDate', e.target.value)} placeholder="dd/mm/yyyy" />
                 </FormField>
               </CardContent>
             </Card>
@@ -518,11 +573,8 @@ export function InvestigationFormPage() {
 
                 {/* Customer Contact Section */}
                 <SectionDivider title="Customer Contact" />
-                <FormField label="Customer Name"><ReadOnlyValue value={customerName} /></FormField>
-                <FormField label="Customer CNIC"><ReadOnlyValue value={`*********${customerCnic?.slice(-4)}`} /></FormField>
-                <FormField label="Customer Account Number"><ReadOnlyValue value={`********${customerAccount?.slice(-4)}`} /></FormField>
                 <FormField isInput label="Customer Call at Contact Centre (Date & Time)" required>
-                  <Input value={f.cxCallDatetime} onChange={e => set('cxCallDatetime', e.target.value)} placeholder="Auto-picked from CX Excel" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                  <DateInputWithIcon type="datetime-local" value={f.cxCallDatetime} onChange={e => set('cxCallDatetime', e.target.value)} placeholder="Auto-picked from CX Excel" />
                 </FormField>
                 <FormField isInput label="Customer Stance as per Initial Call" required large output={f.initialCustomerStance || 'Customer disowned the transactions, claimed fraud.'}>
                   <Textarea value={f.initialCustomerStance} onChange={e => set('initialCustomerStance', e.target.value)} placeholder="Enter customer's initial stance..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
@@ -539,14 +591,14 @@ export function InvestigationFormPage() {
                     <ChipOption value="no" selected={f.contactEstablished==='no'} onChange={v => set('contactEstablished', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Customer CLI Number"><ReadOnlyValue value={f.customerCli} /></FormField>
-                <FormField isInput label="Calling RC (Recording Channel)">
+                <FormField label="Customer CLI Number" required><ReadOnlyValue value={f.customerCli} /></FormField>
+                <FormField isInput label="Calling RC (Recording Channel)" required>
                   <Input value={f.rcChannel} onChange={e => set('rcChannel', e.target.value)} placeholder="e.g. 25148" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="IO Call Date & Time" required output={f.ioCallDatetime ? `IO call made on ${f.ioCallDatetime}` : '—'}>
-                  <Input type="datetime-local" value={f.ioCallDatetime} onChange={e => set('ioCallDatetime', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                <FormField isInput label="Customer Communication Date / Time (IO Call)" required output={f.ioCallDatetime ? `IO call made on ${f.ioCallDatetime}` : '—'}>
+                  <DateInputWithIcon type="datetime-local" value={f.ioCallDatetime} onChange={e => set('ioCallDatetime', e.target.value)} />
                 </FormField>
-                <FormField label="Communication Letter Sent" output={out('letterSent', f.letterSent)}>
+                <FormField label="Communication Letter Sent" required output={out('letterSent', f.letterSent)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.letterSent==='yes'} onChange={v => set('letterSent', v)} label="Yes" />
                     <ChipOption value="no" selected={f.letterSent==='no'} onChange={v => set('letterSent', v)} label="No" />
@@ -555,7 +607,7 @@ export function InvestigationFormPage() {
                 <FormField isInput label="Customer Stance as per IO Call" required large output={f.ioCallStance || '—'}>
                   <Textarea value={f.ioCallStance} onChange={e => set('ioCallStance', e.target.value)} placeholder="Enter stance during IO call..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
                 </FormField>
-                <FormField label="Customer / Beneficiary SIM Blocked" output={out('simBlocked', f.simBlocked)}>
+                <FormField label="Customer / Beneficiary SIM Blocked" required output={out('simBlocked', f.simBlocked)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.simBlocked==='yes'} onChange={v => set('simBlocked', v)} label="Yes" />
                     <ChipOption value="no" selected={f.simBlocked==='no'} onChange={v => set('simBlocked', v)} label="No" />
@@ -564,26 +616,41 @@ export function InvestigationFormPage() {
 
                 {/* Channel & Device Analysis */}
                 <SectionDivider title="Channel & Device Analysis" />
-                <FormField label="Customer IB/MB Channel Creation (Date & Time)"><ReadOnlyValue value={f.mbCreationDatetime} /></FormField>
-                <FormField label="Customer Debit Card Creation"><ReadOnlyValue value={f.dcCreationDatetime} /></FormField>
-                <FormField label="Customer Credit Card Creation"><ReadOnlyValue value={f.ccCreationDatetime} /></FormField>
-                <FormField label="Source of IB/MB Channel Creation"><ReadOnlyValue value={f.mbCreationSource} /></FormField>
-                <FormField label="Initial Device at Registration"><ReadOnlyValue value={f.initialDeviceId} /></FormField>
-                <FormField label="Customer Login ID"><ReadOnlyValue value={f.loginId} /></FormField>
-                <FormField label="User IP / LAT-LONG"><ReadOnlyValue value={f.loginIp} /></FormField>
-                <FormField label="Change in Login ID / Password (02 months)" output={out('credentialChange', f.credentialChange)}>
+                <FormField isInput label="Customer IB/MB Channel Creation (Date & Time)" required>
+                  <DateInputWithIcon type="datetime-local" value={f.mbCreationDatetime} onChange={e => set('mbCreationDatetime', e.target.value)} />
+                </FormField>
+                <FormField isInput label="Customer Debit Card Creation (Date & Time)" required>
+                  <DateInputWithIcon type="datetime-local" value={f.dcCreationDatetime} onChange={e => set('dcCreationDatetime', e.target.value)} />
+                </FormField>
+                <FormField isInput label="Customer Credit Card Creation (Date & Time)" required>
+                  <DateInputWithIcon type="datetime-local" value={f.ccCreationDatetime} onChange={e => set('ccCreationDatetime', e.target.value)} />
+                </FormField>
+                <FormField label="Source of IB/MB Channel Creation" required><ReadOnlyValue value={f.mbCreationSource} /></FormField>
+                <FormField label="HBL Mobile Application Channel Activity Review" required output={out('hblMobileAppActivityReview', f.hblMobileAppActivityReview)}>
+                  <div className="flex gap-3">
+                    <ChipOption value="yes" selected={f.hblMobileAppActivityReview==='yes'} onChange={v => set('hblMobileAppActivityReview', v)} label="Yes" />
+                    <ChipOption value="no" selected={f.hblMobileAppActivityReview==='no'} onChange={v => set('hblMobileAppActivityReview', v)} label="No" />
+                  </div>
+                </FormField>
+                <FormField isInput label="User Since (Date / Time)" required output={f.userSinceDatetime ? `User since ${f.userSinceDatetime}` : '—'}>
+                  <DateInputWithIcon type="datetime-local" value={f.userSinceDatetime} onChange={e => set('userSinceDatetime', e.target.value)} />
+                </FormField>
+                <FormField label="Initial Device (at the time of registration)" required><ReadOnlyValue value={f.initialDeviceId} /></FormField>
+                <FormField label="Customer Login ID (User Name)" required><ReadOnlyValue value={f.loginId} /></FormField>
+                <FormField label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required><ReadOnlyValue value={f.loginIp} /></FormField>
+                <FormField label="Change in Login ID / Password (02 months)" required output={out('credentialChange', f.credentialChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.credentialChange==='yes'} onChange={v => set('credentialChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.credentialChange==='no'} onChange={v => set('credentialChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Change in T-PIN" output={out('tpinChange', f.tpinChange)}>
+                <FormField label="Change in T-PIN" required output={out('tpinChange', f.tpinChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.tpinChange==='yes'} onChange={v => set('tpinChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.tpinChange==='no'} onChange={v => set('tpinChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="New Device Registration" output={out('newDevice', f.newDevice)}>
+                <FormField label="New Device Registration" required output={out('newDevice', f.newDevice)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.newDevice==='yes'} onChange={v => set('newDevice', v)} label="Yes" />
                     <ChipOption value="no" selected={f.newDevice==='no'} onChange={v => set('newDevice', v)} label="No" />
@@ -592,32 +659,32 @@ export function InvestigationFormPage() {
 
                 {/* Limits & Behavioral Analysis */}
                 <SectionDivider title="Limits & Behavioral Analysis" />
-                <FormField label="Limit Enhancement" output={out('limitEnhanced', f.limitEnhanced)}>
+                <FormField label="Limit Enhancement" required output={out('limitEnhanced', f.limitEnhanced)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.limitEnhanced==='yes'} onChange={v => set('limitEnhanced', v)} label="Yes" />
                     <ChipOption value="no" selected={f.limitEnhanced==='no'} onChange={v => set('limitEnhanced', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Customer Default / Previous Limit"><ReadOnlyValue value={f.previousLimit} /></FormField>
-                <FormField label="Customer New Limit"><ReadOnlyValue value={f.newLimit} /></FormField>
-                <FormField isInput label="Mode of Limit Enhancement">
+                <FormField label="Customer Default / Previous Limit" required><ReadOnlyValue value={f.previousLimit} /></FormField>
+                <FormField label="Customer New Limit" required><ReadOnlyValue value={f.newLimit} /></FormField>
+                <FormField isInput label="Mode of Limit Enhancement" required>
                   <Input value={f.limitMode} onChange={e => set('limitMode', e.target.value)} placeholder="N/A" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField label="Customer Disputed Transaction Pattern"><ReadOnlyValue value={f.txnPattern} /></FormField>
-                <FormField label="Change in Device Detail" output={out('deviceChange', f.deviceChange)}>
+                <FormField label="Customer Disputed Transaction Pattern" required><ReadOnlyValue value={f.txnPattern} /></FormField>
+                <FormField label="Change in Device Detail" required output={out('deviceChange', f.deviceChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.deviceChange==='yes'} onChange={v => set('deviceChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.deviceChange==='no'} onChange={v => set('deviceChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Change of IP / Location" output={out('ipChange', f.ipChange)}>
+                <FormField label="Change of IP / Location" required output={out('ipChange', f.ipChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.ipChange==='yes'} onChange={v => set('ipChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.ipChange==='no'} onChange={v => set('ipChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Consumer Product Availed"><ReadOnlyValue value={f.productsAvailed} /></FormField>
-                <FormField label="SMS / OTP Delivered" output={f.otpDelivered === 'yes' ? 'OTP was delivered to customer.' : f.otpDelivered === 'no' ? 'OTP was not delivered.' : '—'}>
+                <FormField label="Consumer Product Availed" required><ReadOnlyValue value={f.productsAvailed} /></FormField>
+                <FormField label="SMS / OTP Delivered" required output={f.otpDelivered === 'yes' ? 'OTP was delivered to customer.' : f.otpDelivered === 'no' ? 'OTP was not delivered.' : '—'}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.otpDelivered==='yes'} onChange={v => set('otpDelivered', v)} label="Yes" />
                     <ChipOption value="no" selected={f.otpDelivered==='no'} onChange={v => set('otpDelivered', v)} label="No" />
@@ -827,7 +894,7 @@ export function InvestigationFormPage() {
       <SubmissionSuccessDialog open={showSuccess} onClose={handleSuccessClose} />
 
       {/* Right-edge vertical tab trigger for Transcription Panel */}
-      {!transcriptionOpen && (
+      {currentStep === 2 && !transcriptionOpen && (
         <button
           onClick={() => setTranscriptionOpen(true)}
           className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex items-center gap-1.5 bg-[#2064B7] text-white px-2 py-3 rounded-l-lg shadow-lg hover:bg-[#1a53a0] transition-all hover:pr-3 group"
@@ -839,7 +906,7 @@ export function InvestigationFormPage() {
       )}
 
       {/* Transcription Panel Sheet */}
-      <TranscriptionPanel open={transcriptionOpen} onOpenChange={setTranscriptionOpen} />
+      <TranscriptionPanel open={currentStep === 2 && transcriptionOpen} onOpenChange={setTranscriptionOpen} />
     </>
   );
 }

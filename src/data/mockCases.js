@@ -57,7 +57,7 @@ const baseMockCases = [
         id: 3,
         transaction_id: 'TXN20250115001',
         stan: '123458',
-        transaction_date: '2025-01-15',
+        transaction_date: '2025-05-15',
         transaction_time: '09:15:00',
         amount: 250000,
         disputed_amount: 250000,

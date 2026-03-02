@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -15,6 +15,8 @@ import {
   Plus,
   Pencil,
   Trash2,
+  Calendar,
+  CalendarDays,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,12 +52,12 @@ import { ManualTransactionModal } from '@/components/forms/ManualTransactionModa
 import { cn } from '@/lib/utils';
 import { searchCustomers, getTransactionsForAccount } from '@/data/mockCustomers';
 import { fraudTypes, channels } from '@/data/mockCases';
+import { addImportedCases, getAllCases } from '@/data/caseStorage';
 
 const steps = [
-  { id: 1, title: 'Customer Search', icon: Search },
-  { id: 2, title: 'Select Transactions', icon: CreditCard },
-  { id: 3, title: 'Case Details', icon: FileText },
-  { id: 4, title: 'Review & Submit', icon: ClipboardList },
+  { id: 1, title: 'Select Transactions', icon: CreditCard },
+  { id: 2, title: 'Case Details', icon: FileText },
+  // { id: 3, title: 'Review & Submit', icon: ClipboardList }, // kept for future use
 ];
 
 function formatCurrency(amount) {
@@ -64,6 +66,13 @@ function formatCurrency(amount) {
     currency: 'PKR',
     minimumFractionDigits: 0,
   }).format(amount);
+}
+
+function maskAccountNumber(num) {
+  if (!num) return '**** **** ****';
+  const clean = String(num);
+  if (clean.length <= 4) return clean;
+  return `**** **** ${clean.slice(-4)}`;
 }
 
 function StepIndicator({ currentStep }) {
@@ -248,22 +257,34 @@ export function CreateCasePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [foundAccounts, setFoundAccounts] = useState([]);
+  const [selectedFoundAccountIds, setSelectedFoundAccountIds] = useState({});
+  const [expandedFoundAccountId, setExpandedFoundAccountId] = useState(null);
+  const [dateRanges, setDateRanges] = useState({});
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const dateInputRefs = useRef({});
+  const caseReceivedDateRef = useRef(null);
 
   // Step 2: Transactions (multi-account)
   const [accountTransactions, setAccountTransactions] = useState({});
   // Maps accountId → transactions[]
   const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
+  const [step2VisibleTransactionIds, setStep2VisibleTransactionIds] = useState([]);
   const [manualTransactions, setManualTransactions] = useState([]);
+  const [selectedManualTransactionIds, setSelectedManualTransactionIds] = useState([]);
+  const [transactionFtdhIds, setTransactionFtdhIds] = useState({});
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [editingManualTxn, setEditingManualTxn] = useState(null);
 
   // Step 3: Case Details
   const [caseDetails, setCaseDetails] = useState({
     scenario: '',
+    referenceNumber: '',
     investigationOfficer: '',
     complaintNo: '',
     caseReceivingChannel: '',
+    caseReportingChannel: '',
+    caseReceivedChannel: '',
     caseReceivedDate: format(new Date(), 'yyyy-MM-dd'),
     branchCode: '',
     customerReportedLate: '',
@@ -284,44 +305,178 @@ export function CreateCasePage() {
 
   // ─── Search Logic ─────────────────────────────────────────────────────
 
-  const performSearch = useCallback((query) => {
-    if (!query.trim()) {
+  const handleSearch = () => {
+    const query = searchQuery.trim();
+    if (!query) {
       setSearchResults([]);
+      setFoundAccounts([]);
+      setSelectedFoundAccountIds({});
+      setExpandedFoundAccountId(null);
       setHasSearched(false);
       return;
     }
-    const results = searchCustomers(query);
+
+    const results = searchCustomers(query).filter(
+      (customer) =>
+        customer.cnic === query ||
+        customer.accounts.some((account) => account.account_number === query)
+    );
+    const accounts = results.flatMap((customer) =>
+      customer.accounts.map((account) => ({
+        ...account,
+        customer,
+      }))
+    );
+
     setSearchResults(results);
+    setFoundAccounts(accounts);
     setHasSearched(true);
-  }, []);
 
-  // Debounced live search — fires 300ms after the user stops typing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      performSearch(searchQuery);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, performSearch]);
-
-  const handleSearch = () => {
-    performSearch(searchQuery);
-  };
-
-  // ─── Customer Selection → Load Transactions ───────────────────────────
-
-  const handleSelectCustomer = (customer) => {
-    setSelectedCustomer(customer);
-
-    // Load transactions for each account
-    const txnMap = {};
-    customer.accounts.forEach((acc) => {
-      txnMap[acc.id] = getTransactionsForAccount(acc.id);
-    });
-    setAccountTransactions(txnMap);
-
-    // Reset selections
+    // Reset selection context on every fresh search
     setSelectedTransactionIds([]);
     setManualTransactions([]);
+    setAccountTransactions({});
+    setDateRanges({});
+
+    if (accounts.length > 0) {
+      const first = accounts[0];
+      setSelectedFoundAccountIds({ [first.id]: true });
+      setExpandedFoundAccountId(first.id);
+      setSelectedCustomer(first.customer);
+      setAccountTransactions({ [first.id]: getTransactionsForAccount(first.id) });
+    } else {
+      setSelectedFoundAccountIds({});
+      setExpandedFoundAccountId(null);
+      setSelectedCustomer(null);
+    }
+  };
+
+  const handleToggleFoundAccount = (account, checked) => {
+    const accountId = account.id;
+
+    setSelectedFoundAccountIds((prev) => ({
+      ...prev,
+      [accountId]: Boolean(checked),
+    }));
+
+    if (checked) {
+      setSelectedCustomer(account.customer);
+      setExpandedFoundAccountId(accountId);
+      setAccountTransactions((prev) => {
+        if (prev[accountId]) return prev;
+        return {
+          ...prev,
+          [accountId]: getTransactionsForAccount(accountId),
+        };
+      });
+      return;
+    }
+
+    const accountTxnIds = (accountTransactions[accountId] || []).map((t) => t.id);
+    setSelectedTransactionIds((prev) => prev.filter((id) => !accountTxnIds.includes(id)));
+
+    const selectedAfter = Object.entries({ ...selectedFoundAccountIds, [accountId]: false })
+      .filter(([, isSelected]) => isSelected)
+      .map(([id]) => id);
+
+    if (selectedAfter.length === 0) {
+      setSelectedCustomer(null);
+    }
+  };
+
+  const handleDateRangeChange = (accountId, field, value) => {
+    setDateRanges((prev) => ({
+      ...prev,
+      [accountId]: {
+        ...prev[accountId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const openDatePicker = (accountId, field) => {
+    const refKey = `${accountId}-${field}`;
+    const input = dateInputRefs.current[refKey];
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+    } else {
+      input.focus();
+      input.click();
+    }
+  };
+
+  const openCaseReceivedDatePicker = () => {
+    const input = caseReceivedDateRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+    } else {
+      input.focus();
+      input.click();
+    }
+  };
+
+  const getFilteredTransactions = (accountId) => {
+    const txns = accountTransactions[accountId] || [];
+    const dateFrom = dateRanges[accountId]?.dateFrom;
+    const dateTo = dateRanges[accountId]?.dateTo;
+
+    if (!dateFrom && !dateTo) return txns;
+
+    return txns.filter((t) => {
+      const d = t.transaction_date;
+      if (!d) return false;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  };
+
+  const handleProceedFromDataFound = () => {
+    const selectedAccountIds = Object.entries(selectedFoundAccountIds)
+      .filter(([, checked]) => checked)
+      .map(([id]) => id);
+
+    if (selectedAccountIds.length === 0) {
+      toast.error('Select at least one account');
+      return;
+    }
+
+    const missingDates = selectedAccountIds.some((accId) => {
+      const range = dateRanges[accId] || {};
+      return !range.dateFrom || !range.dateTo;
+    });
+
+    if (missingDates) {
+      toast.error('Please select Date From and Date To for selected account(s)');
+      return;
+    }
+
+    if (selectedTransactionIds.length === 0) {
+      toast.error('Select at least one transaction');
+      return;
+    }
+
+    const derivedReference = `REF-IBMB-${String(selectedCustomer?.id || 1).padStart(3, '0')}`;
+    const derivedComplaint = `CMP-${new Date().getFullYear()}-${String((selectedCustomer?.id || 0) + 987).padStart(5, '0')}`;
+
+    setCaseDetails((prev) => ({
+      ...prev,
+      referenceNumber: prev.referenceNumber || derivedReference,
+      complaintNo: prev.complaintNo || derivedComplaint,
+      caseReceivedChannel: prev.caseReceivedChannel || prev.caseReceivingChannel || '',
+      noOfTransactions: prev.noOfTransactions || String(selectedTransactionIds.length),
+      disputeAmountAtRisk:
+        prev.disputeAmountAtRisk ||
+        String(
+          allAccountTxns
+            .filter((t) => selectedTransactionIds.includes(t.id))
+            .reduce((sum, t) => sum + (t.disputed_amount || t.amount || 0), 0)
+        ),
+    }));
+
+      setStep2VisibleTransactionIds([...selectedTransactionIds]);
     setCurrentStep(2);
   };
 
@@ -354,8 +509,12 @@ export function CreateCasePage() {
         prev.map((t) => (t.id === txn.id ? txn : t))
       );
       setEditingManualTxn(null);
+      setSelectedManualTransactionIds((prev) =>
+        prev.includes(txn.id) ? prev : [...prev, txn.id]
+      );
     } else {
       setManualTransactions((prev) => [...prev, txn]);
+      setSelectedManualTransactionIds((prev) => [...prev, txn.id]);
     }
   };
 
@@ -366,6 +525,23 @@ export function CreateCasePage() {
 
   const handleDeleteManualTransaction = (txnId) => {
     setManualTransactions((prev) => prev.filter((t) => t.id !== txnId));
+    setSelectedManualTransactionIds((prev) => prev.filter((id) => id !== txnId));
+  };
+
+  const handleToggleManualTransaction = (txnId) => {
+    setSelectedManualTransactionIds((prev) =>
+      prev.includes(txnId) ? prev.filter((id) => id !== txnId) : [...prev, txnId]
+    );
+  };
+
+  const handleToggleAllManualForAccount = (txns) => {
+    const ids = txns.map((t) => t.id);
+    const allSelected = ids.every((id) => selectedManualTransactionIds.includes(id));
+    if (allSelected) {
+      setSelectedManualTransactionIds((prev) => prev.filter((id) => !ids.includes(id)));
+    } else {
+      setSelectedManualTransactionIds((prev) => [...new Set([...prev, ...ids])]);
+    }
   };
 
   // ─── Computed Values ──────────────────────────────────────────────────
@@ -379,7 +555,10 @@ export function CreateCasePage() {
   );
 
   // All selected (system + manual)
-  const allSelectedTxns = [...selectedSystemTxns, ...manualTransactions];
+  const selectedManualTxns = manualTransactions.filter((t) =>
+    selectedManualTransactionIds.includes(t.id)
+  );
+  const allSelectedTxns = [...selectedSystemTxns, ...selectedManualTxns];
 
   // Count unique accounts that have selected transactions
   const selectedAccountIds = new Set();
@@ -400,21 +579,77 @@ export function CreateCasePage() {
   const canProceedToStep3 = allSelectedTxns.length > 0;
   const canProceedToStep4 =
     caseDetails.complaintNo &&
-    caseDetails.caseReceivingChannel &&
-    caseDetails.channel &&
-    caseDetails.fraudType;
+    caseDetails.caseReportingChannel &&
+    caseDetails.caseReceivedChannel &&
+    caseDetails.caseReceivedDate &&
+    allSelectedTxns.length > 0;
+
+  const selectedFoundAccounts = foundAccounts.filter((acc) => selectedFoundAccountIds[acc.id]);
 
   // ─── Submit ───────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-    toast.success('Case created successfully', {
-      description: 'Reference: IBMB-2025-000007',
-    });
+      const allCases = getAllCases();
+      const nextId = allCases.reduce((maxId, c) => Math.max(maxId, Number(c?.id) || 0), 0) + 1;
+      const year = new Date().getFullYear();
+      const referenceNumber = `IBMB-${year}-${String(nextId).padStart(6, '0')}`;
 
-    navigate('/cases');
+      const txnsToSave = allSelectedTxns.map((txn, idx) => ({
+        id: txn.id || `MANUAL-${Date.now()}-${idx}`,
+        transaction_id: txn.transaction_id,
+        stan: txn.stan || '',
+        transaction_date: txn.transaction_date,
+        transaction_time: txn.transaction_time || '',
+        amount: Number(txn.amount || 0),
+        disputed_amount: Number(txn.disputed_amount || txn.amount || 0),
+        beneficiary_account: txn.beneficiary_account || '',
+        beneficiary_bank: txn.beneficiary_bank || '',
+        beneficiary_name: txn.beneficiary_name || '',
+        channel: txn.channel || 'IB',
+        ip_address: txn.ip_address || '',
+        device_id: txn.device_id || txn.imei || '',
+        ftdh_id: transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? '',
+      }));
+
+      const createdCase = {
+        id: nextId,
+        reference_number: referenceNumber,
+        customer: {
+          id: selectedCustomer?.id ?? null,
+          name: selectedCustomer?.name || 'Unknown Customer',
+          cnic: selectedCustomer?.cnic || '',
+          account_number: selectedFoundAccounts[0]?.account_number || selectedCustomer?.accounts?.[0]?.account_number || '',
+          card_number: selectedCustomer?.card_number || '',
+          city: selectedCustomer?.city || 'N/A',
+          region: selectedCustomer?.region || 'N/A',
+          mobile: selectedCustomer?.mobile || '',
+        },
+        status: 'open',
+        investigation_status: 'in_progress',
+        channel: caseDetails.caseReportingChannel || 'other',
+        fraud_type: caseDetails.fraudType || 'other',
+        complaint_number: caseDetails.complaintNo,
+        total_disputed_amount: totalDisputedAmount,
+        created_at: new Date().toISOString(),
+        case_received_date: caseDetails.caseReceivedDate,
+        transactions: txnsToSave,
+        actions: [],
+      };
+
+      addImportedCases([createdCase]);
+
+      toast.success('Case created successfully', {
+        description: `Reference: ${referenceNumber}`,
+      });
+
+      navigate('/cases');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // ─── Render ───────────────────────────────────────────────────────────
@@ -441,9 +676,9 @@ export function CreateCasePage() {
       {currentStep === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Customer Search</CardTitle>
+            <CardTitle>Select Transactions</CardTitle>
             <CardDescription>
-              Search for the customer by Account Number, CNIC, or Card Number
+              Search by exact Account Number or CNIC, then select date range and transactions
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -454,60 +689,168 @@ export function CreateCasePage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  className="border-[#dae1e7]"
                 />
               </div>
-              <Button onClick={handleSearch}>
+              <Button onClick={handleSearch} className="bg-[#2064b7] hover:bg-[#1b56a0] text-white">
                 <Search className="mr-2 h-4 w-4" />
                 Search
               </Button>
             </div>
 
-            {searchResults.length > 0 && (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>CNIC</TableHead>
-                      <TableHead>Accounts</TableHead>
-                      <TableHead>City</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {searchResults.map((customer) => (
-                      <TableRow key={customer.id}>
-                        <TableCell className="font-medium">
-                          {customer.name}
-                        </TableCell>
-                        <TableCell>
-                          <DataMasker value={customer.cnic} type="cnic" />
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            {customer.accounts.map((acc) => (
-                              <div key={acc.id} className="flex items-center gap-1.5">
-                                <DataMasker value={acc.account_number} type="account" />
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                  {acc.account_type}
-                                </Badge>
+            {foundAccounts.length > 0 && (
+              <div className="w-full rounded-lg border border-[#dae1e7] bg-white p-3">
+                <div className="space-y-1 text-center">
+                  <h3 className="text-2xl font-semibold text-[#4c4c4c]">
+                    {foundAccounts.length === 1 ? 'One Account Found' : `${foundAccounts.length} accounts found`}
+                  </h3>
+                  {foundAccounts.length === 1 && (
+                    <p className="text-[28px] leading-none text-[#afafaf]">{maskAccountNumber(foundAccounts[0].account_number)}</p>
+                  )}
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {foundAccounts.map((account, index) => {
+                    const isSelected = !!selectedFoundAccountIds[account.id];
+                    const isExpanded = expandedFoundAccountId === account.id;
+                    const filteredTxns = getFilteredTransactions(account.id);
+
+                    return (
+                      <div key={account.id} className="rounded-md border border-[#dae1e7] overflow-hidden">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-3 bg-[#f9fafb] px-3 py-2 text-left"
+                          onClick={() => setExpandedFoundAccountId(isExpanded ? null : account.id)}
+                        >
+                          {foundAccounts.length > 1 && (
+                            <span className="w-4 text-lg font-semibold text-[#4c4c4c]">{index + 1}</span>
+                          )}
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) => handleToggleFoundAccount(account, checked)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                          />
+                          <span className="flex-1 text-lg text-[#afafaf]">{maskAccountNumber(account.account_number)}</span>
+                          {isExpanded ? <ChevronDown className="h-4 w-4 text-[#afafaf]" /> : <ChevronRight className="h-4 w-4 text-[#afafaf]" />}
+                        </button>
+
+                        {isExpanded && isSelected && (
+                          <div className="space-y-3 bg-white p-2.5">
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                              <div className="space-y-1">
+                                <Label className="text-sm font-medium text-[#4c4c4c]">
+                                  Date From<span className="text-[#c22e1f]">*</span>
+                                </Label>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => openDatePicker(account.id, 'dateFrom')}
+                                    className="absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-[#afafaf]"
+                                  >
+                                    <Calendar className="h-4 w-4" />
+                                  </button>
+                                  <Input
+                                    ref={(el) => {
+                                      dateInputRefs.current[`${account.id}-dateFrom`] = el;
+                                    }}
+                                    type="date"
+                                    value={dateRanges[account.id]?.dateFrom || ''}
+                                    onChange={(e) => handleDateRangeChange(account.id, 'dateFrom', e.target.value)}
+                                    className="border-[#dae1e7] bg-[#f9fafb] pl-9 [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+                                    style={{ WebkitAppearance: 'none', appearance: 'none' }}
+                                  />
+                                </div>
                               </div>
-                            ))}
+                              <div className="space-y-1">
+                                <Label className="text-sm font-medium text-[#4c4c4c]">
+                                  Date To<span className="text-[#c22e1f]">*</span>
+                                </Label>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => openDatePicker(account.id, 'dateTo')}
+                                    className="absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-[#afafaf]"
+                                  >
+                                    <Calendar className="h-4 w-4" />
+                                  </button>
+                                  <Input
+                                    ref={(el) => {
+                                      dateInputRefs.current[`${account.id}-dateTo`] = el;
+                                    }}
+                                    type="date"
+                                    value={dateRanges[account.id]?.dateTo || ''}
+                                    onChange={(e) => handleDateRangeChange(account.id, 'dateTo', e.target.value)}
+                                    className="border-[#dae1e7] bg-[#f9fafb] pl-9 [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+                                    style={{ WebkitAppearance: 'none', appearance: 'none' }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-md border border-[#dae1e7]">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="bg-[#edf1f4] hover:bg-[#edf1f4]">
+                                    <TableHead className="w-10" />
+                                    <TableHead className="text-[11px] text-[#4c4c4c]">Transaction ID</TableHead>
+                                    <TableHead className="text-[11px] text-[#4c4c4c]">Branch</TableHead>
+                                    <TableHead className="text-[11px] text-[#4c4c4c]">Amount</TableHead>
+                                    <TableHead className="text-[11px] text-[#4c4c4c]">Beneficiary</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {filteredTxns.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                                        No transactions in selected date range.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    filteredTxns.map((txn) => (
+                                      <TableRow key={txn.id}>
+                                        <TableCell>
+                                          <Checkbox
+                                            checked={selectedTransactionIds.includes(txn.id)}
+                                            onCheckedChange={() => handleToggleTransaction(txn.id)}
+                                            className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                          />
+                                        </TableCell>
+                                        <TableCell className="text-xs font-medium">{txn.transaction_id}</TableCell>
+                                        <TableCell className="text-xs">
+                                          <div>{txn.branch_name || '—'}</div>
+                                          <div className="text-[10px] text-muted-foreground">{txn.branch_code || '—'}</div>
+                                        </TableCell>
+                                        <TableCell className="text-xs font-medium text-[#1e8fff]">
+                                          {formatCurrency(txn.amount)}
+                                        </TableCell>
+                                        <TableCell className="text-xs">
+                                          <div>{txn.beneficiary_bank || '—'}</div>
+                                          <div className="text-[10px] text-muted-foreground">
+                                            <DataMasker value={txn.beneficiary_account} type="account" />
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell>{customer.city}</TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            onClick={() => handleSelectCustomer(customer)}
-                          >
-                            Select
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    className="h-10 min-w-[170px] rounded-full bg-[#2064b7] px-8 text-white hover:bg-[#1b56a0]"
+                    onClick={handleProceedFromDataFound}
+                  >
+                    Proceed
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -515,98 +858,15 @@ export function CreateCasePage() {
               <div className="text-center py-8 border rounded-lg">
                 <User className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                 <p className="text-muted-foreground">No customers found</p>
-                <Button variant="link" className="mt-2">
-                  Customer not found? Create manually
-                </Button>
               </div>
             )}
 
-            <div className="rounded-lg border p-4 space-y-4">
-              <h4 className="font-medium">POC Intake (Manual)</h4>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="scenario">Scenario</Label>
-                  <Input
-                    id="scenario"
-                    placeholder="e.g. Scenario 1"
-                    value={caseDetails.scenario}
-                    onChange={(e) => setCaseDetails({ ...caseDetails, scenario: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="investigationOfficer">Investigation Officer</Label>
-                  <Input
-                    id="investigationOfficer"
-                    placeholder="Enter investigator name"
-                    value={caseDetails.investigationOfficer}
-                    onChange={(e) =>
-                      setCaseDetails({ ...caseDetails, investigationOfficer: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="complaintNo">Complaint No *</Label>
-                  <Input
-                    id="complaintNo"
-                    placeholder="e.g. CC-2025-02145"
-                    value={caseDetails.complaintNo}
-                    onChange={(e) => setCaseDetails({ ...caseDetails, complaintNo: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="caseReceivingChannel">Case Receiving Channel *</Label>
-                  <Select
-                    value={caseDetails.caseReceivingChannel}
-                    onValueChange={(value) =>
-                      setCaseDetails({ ...caseDetails, caseReceivingChannel: value })
-                    }
-                  >
-                    <SelectTrigger id="caseReceivingChannel">
-                      <SelectValue placeholder="Select receiving channel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {channels.map((channel) => (
-                        <SelectItem key={channel.value} value={channel.value}>
-                          {channel.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="branchCode">Branch Code</Label>
-                  <Input
-                    id="branchCode"
-                    placeholder="e.g. 0606"
-                    value={caseDetails.branchCode}
-                    onChange={(e) => setCaseDetails({ ...caseDetails, branchCode: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="customerReportedLate">Customer Reported Late</Label>
-                  <Select
-                    value={caseDetails.customerReportedLate}
-                    onValueChange={(value) =>
-                      setCaseDetails({ ...caseDetails, customerReportedLate: value })
-                    }
-                  >
-                    <SelectTrigger id="customerReportedLate">
-                      <SelectValue placeholder="Select value" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}
 
       {/* ═══════════════════ Step 2: Select Transactions ═════════════════ */}
-      {currentStep === 2 && (
+      {currentStep === 99 && (
         <Card>
           <CardHeader>
             <CardTitle>Select Transactions</CardTitle>
@@ -779,463 +1039,329 @@ export function CreateCasePage() {
       )}
 
       {/* ═══════════════════ Step 3: Case Details ════════════════════════ */}
-      {currentStep === 3 && (
+      {currentStep === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>Case Details</CardTitle>
+            <CardTitle>Add New IB / MB Dispute</CardTitle>
             <CardDescription>
-              Enter the case information and categorization
+              Complete the form from below to register a new IB / MB dispute case
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="caseReceivedDate">Case Received Date *</Label>
-                <Input
-                  id="caseReceivedDate"
-                  type="date"
-                  value={caseDetails.caseReceivedDate}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, caseReceivedDate: e.target.value })
-                  }
-                />
-              </div>
+          <CardContent className="space-y-5">
+            <div className="rounded-[14px] border-2 border-[#dae1e7] bg-white overflow-hidden">
+              <div className="border-l-[10px] border-l-[#2064b7] p-4">
+                <h4 className="text-[24px] font-[600] text-[#4C4C4C] leading-[1.3]">Customer Details</h4>
+                <p className="text-sm text-[#8c8c8c]">Basic customer and card information</p>
 
-              <div className="space-y-2">
-                <Label htmlFor="dateIncidentOccurred">Date(s) Incident Occurred</Label>
-                <Input
-                  id="dateIncidentOccurred"
-                  placeholder="e.g. 2025-12-10 to 2026-01-15"
-                  value={caseDetails.dateIncidentOccurred}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, dateIncidentOccurred: e.target.value })
-                  }
-                />
-              </div>
+                <div className="mt-5 grid gap-x-4 gap-y-6 md:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label>Customer Name</Label>
+                    <Input value={selectedCustomer?.name || ''} readOnly className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Reference Number</Label>
+                    <Input
+                      value={caseDetails.referenceNumber || `REF-IBMB-${String(selectedCustomer?.id || 1).padStart(3, '0')}`}
+                      readOnly
+                      className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>CNIC</Label>
+                    <Input value={selectedCustomer?.cnic ? `${selectedCustomer.cnic.slice(0, 4)}xxxxxx${selectedCustomer.cnic.slice(-5)}` : ''} readOnly className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Complaint Number</Label>
+                    <Input
+                      value={caseDetails.complaintNo}
+                      onChange={(e) => setCaseDetails({ ...caseDetails, complaintNo: e.target.value })}
+                      className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="disputeChannel">Dispute Channel *</Label>
-                <Select
-                  value={caseDetails.channel}
-                  onValueChange={(value) =>
-                    setCaseDetails({ ...caseDetails, channel: value })
-                  }
-                >
-                  <SelectTrigger id="disputeChannel">
-                    <SelectValue placeholder="Select dispute channel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {channels.map((channel) => (
-                      <SelectItem key={channel.value} value={channel.value}>
-                        {channel.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-1">
+                    <Label>Customer City</Label>
+                    <Input value={selectedCustomer?.city || ''} readOnly className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Customer Region</Label>
+                    <Input value={selectedCustomer?.region || ''} readOnly className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Case Received Date</Label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={openCaseReceivedDatePicker}
+                        className="absolute left-3 top-1/2 z-10 -translate-y-1/2 text-[#05AEE5]"
+                      >
+                        <CalendarDays className="h-5 w-5" />
+                      </button>
+                      <Input
+                        ref={caseReceivedDateRef}
+                        type="date"
+                        value={caseDetails.caseReceivedDate}
+                        onChange={(e) => setCaseDetails({ ...caseDetails, caseReceivedDate: e.target.value })}
+                        className="no-native-picker h-[47px] border-[#dae1e7] bg-[#f9fafb] pl-10 text-[16px] text-[#4C4C4C] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none"
+                        style={{ WebkitAppearance: 'none', appearance: 'none' }}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>
+                      Case Received Channel <span className="text-[#E20015]">*</span>
+                    </Label>
+                    <Input
+                      placeholder="Enter Channel"
+                      value={caseDetails.caseReceivedChannel}
+                      onChange={(e) =>
+                        setCaseDetails({
+                          ...caseDetails,
+                          caseReceivedChannel: e.target.value,
+                          caseReceivingChannel: e.target.value,
+                        })
+                      }
+                      className="h-[47px] border-[#dae1e7] bg-[#f9fafb] text-[16px]"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="fraudType">Fraud Type *</Label>
-                <Select
-                  value={caseDetails.fraudType}
-                  onValueChange={(value) =>
-                    setCaseDetails({ ...caseDetails, fraudType: value })
-                  }
-                >
-                  <SelectTrigger id="fraudType">
-                    <SelectValue placeholder="Select fraud type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fraudTypes.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="transactionPeriod">Transaction Period</Label>
-                <Input
-                  id="transactionPeriod"
-                  placeholder="e.g. Dec-Jan"
-                  value={caseDetails.transactionPeriod}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, transactionPeriod: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="noOfTransactions">No. of Transactions</Label>
-                <Input
-                  id="noOfTransactions"
-                  type="number"
-                  min="0"
-                  placeholder="e.g. 5"
-                  value={caseDetails.noOfTransactions}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, noOfTransactions: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="disputeAmountAtRisk">Dispute Amount At Risk (PKR)</Label>
-                <Input
-                  id="disputeAmountAtRisk"
-                  type="number"
-                  min="0"
-                  placeholder="e.g. 375000"
-                  value={caseDetails.disputeAmountAtRisk}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, disputeAmountAtRisk: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fmsAlertGenerated">FMS Alert Generated</Label>
-                <Select
-                  value={caseDetails.fmsAlertGenerated}
-                  onValueChange={(value) =>
-                    setCaseDetails({ ...caseDetails, fmsAlertGenerated: value })
-                  }
-                >
-                  <SelectTrigger id="fmsAlertGenerated">
-                    <SelectValue placeholder="Select value" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="expectedRecoveryOnUs">Expected Recovery From ON-US Beneficiary</Label>
-                <Input
-                  id="expectedRecoveryOnUs"
-                  placeholder="e.g. NIL"
-                  value={caseDetails.expectedRecoveryOnUs}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, expectedRecoveryOnUs: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="expectedRecoveryMemberBank">Expected Recovery From Member / Bank Beneficiary</Label>
-                <Input
-                  id="expectedRecoveryMemberBank"
-                  placeholder="e.g. NIL / Pending"
-                  value={caseDetails.expectedRecoveryMemberBank}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, expectedRecoveryMemberBank: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ftdhFilled">FTDH Filled</Label>
-                <Select
-                  value={caseDetails.ftdhFilled}
-                  onValueChange={(value) =>
-                    setCaseDetails({ ...caseDetails, ftdhFilled: value })
-                  }
-                >
-                  <SelectTrigger id="ftdhFilled">
-                    <SelectValue placeholder="Select value" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ftdhId">FTDH ID (Optional)</Label>
-                <Input
-                  id="ftdhId"
-                  placeholder="Enter FTDH reference if applicable"
-                  value={caseDetails.ftdhId}
-                  onChange={(e) =>
-                    setCaseDetails({ ...caseDetails, ftdhId: e.target.value })
-                  }
-                />
+                  <div className="space-y-1">
+                    <Label>
+                      Case Reporting Channel <span className="text-[#E20015]">*</span>
+                    </Label>
+                    <Select
+                      value={caseDetails.caseReportingChannel}
+                      onValueChange={(value) => setCaseDetails({ ...caseDetails, caseReportingChannel: value })}
+                    >
+                      <SelectTrigger className="w-full !h-[47px] min-h-[47px] py-0 bg-[#f9fafb] border-[#dae1e7] text-[16px] text-[#4C4C4C]">
+                        <SelectValue placeholder="Select reporting channel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ibft_atm">IBFT/ATM</SelectItem>
+                        <SelectItem value="poc_atm">POC/ATM</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="disputedTransactionDetails">Disputed Transaction Details</Label>
-              <Textarea
-                id="disputedTransactionDetails"
-                placeholder="e.g. 10-Dec-2024 to 15-Jan-2025 (5 Transactions)"
-                rows={3}
-                value={caseDetails.disputedTransactionDetails}
-                onChange={(e) =>
-                  setCaseDetails({ ...caseDetails, disputedTransactionDetails: e.target.value })
-                }
-              />
-            </div>
+            <div className="rounded-[14px] border-2 border-[#dae1e7] bg-white overflow-hidden">
+              <div className="border-l-[10px] border-l-[#2064b7] p-4">
+                <div className="mb-3 flex items-start justify-between">
+                  <div>
+                    <h4 className="text-[24px] font-[600] text-[#4C4C4C] leading-[1.3]">Transaction Details</h4>
+                    <p className="text-sm text-[#8c8c8c]">Transaction and dispute information</p>
+                  </div>
+                  <Button
+                    className="bg-[#2592ff] hover:bg-[#1e8fff] text-white"
+                    onClick={() => {
+                      setEditingManualTxn(null);
+                      setManualModalOpen(true);
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Transaction
+                  </Button>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                placeholder="Additional notes about the case..."
-                rows={4}
-                value={caseDetails.notes}
-                onChange={(e) =>
-                  setCaseDetails({ ...caseDetails, notes: e.target.value })
-                }
-              />
+                <div className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
+                  {selectedFoundAccounts.map((account, accountIndex) => {
+                    const rows = (accountTransactions[account.id] || []).filter((t) =>
+                      step2VisibleTransactionIds.includes(t.id)
+                    );
+
+                    if (rows.length === 0) return null;
+
+                    return (
+                      <div key={account.id} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8fff] text-white font-semibold">
+                            {accountIndex + 1}
+                          </span>
+                          <div>
+                            <p className="text-[10px] text-[#afafaf]">Account Number</p>
+                            <p className="text-xl text-[#4c4c4c]">{maskAccountNumber(account.account_number)}</p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-[12px] border-2 border-[#dae1e7]">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-[#edf1f4] hover:bg-[#edf1f4]">
+                                <TableHead className="w-10">
+                                  <Checkbox
+                                    checked={rows.every((r) => selectedTransactionIds.includes(r.id))}
+                                    onCheckedChange={() => handleToggleAll(account.id, rows)}
+                                    className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                  />
+                                </TableHead>
+                                <TableHead>Transaction ID</TableHead>
+                                <TableHead>Branch</TableHead>
+                                <TableHead>Amount</TableHead>
+                                <TableHead>Beneficiary</TableHead>
+                                <TableHead>Date &amp; Time</TableHead>
+                                <TableHead>FTDH ID</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {rows.map((txn) => (
+                                <TableRow key={txn.id}>
+                                  <TableCell>
+                                    <Checkbox
+                                      checked={selectedTransactionIds.includes(txn.id)}
+                                      onCheckedChange={() => handleToggleTransaction(txn.id)}
+                                      className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                    />
+                                  </TableCell>
+                                  <TableCell className="font-medium">{txn.transaction_id}</TableCell>
+                                  <TableCell>
+                                    <p>{txn.branch_name || 'Clifton Branch'}</p>
+                                    <p className="text-xs text-[#afafaf]">{txn.branch_code || '0123'}</p>
+                                  </TableCell>
+                                  <TableCell className="font-medium text-[#1e8fff]">{formatCurrency(txn.amount)}</TableCell>
+                                  <TableCell>
+                                    <p>{txn.beneficiary_bank || '—'}</p>
+                                    <p className="text-xs text-[#afafaf]"><DataMasker value={txn.beneficiary_account} type="account" /></p>
+                                  </TableCell>
+                                  <TableCell>
+                                    <p>{format(new Date(txn.transaction_date), 'dd/MM/yyyy')}</p>
+                                    <p className="text-xs text-[#afafaf]">{txn.transaction_time?.slice(0, 5) || '--:--'}</p>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      placeholder="Enter ID"
+                                      value={transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? ''}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        setTransactionFtdhIds((prev) => ({ ...prev, [txn.id]: value }));
+                                      }}
+                                      className="h-8 bg-[#f9fafb]"
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {manualTransactions.length > 0 && (
+                    <>
+                      {Object.entries(
+                        manualTransactions.reduce((acc, txn) => {
+                          const key = txn.beneficiary_account || 'manual-no-account';
+                          if (!acc[key]) acc[key] = [];
+                          acc[key].push(txn);
+                          return acc;
+                        }, {})
+                      ).map(([accountNo, txns], manualIndex) => (
+                        <div key={accountNo} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#1e8fff] text-white font-semibold">
+                              {selectedFoundAccounts.length + manualIndex + 1}
+                            </span>
+                            <div>
+                              <p className="text-[10px] text-[#afafaf]">Account Number</p>
+                              <p className="text-xl text-[#4c4c4c]">{maskAccountNumber(accountNo)}</p>
+                            </div>
+                          </div>
+
+                          <div className="overflow-hidden rounded-[12px] border-2 border-[#dae1e7]">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-[#edf1f4] hover:bg-[#edf1f4]">
+                                  <TableHead className="w-10">
+                                    <Checkbox
+                                      checked={txns.every((t) => selectedManualTransactionIds.includes(t.id))}
+                                      onCheckedChange={() => handleToggleAllManualForAccount(txns)}
+                                      className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                    />
+                                  </TableHead>
+                                  <TableHead>Transaction ID</TableHead>
+                                  <TableHead>Branch</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Beneficiary</TableHead>
+                                  <TableHead>Date &amp; Time</TableHead>
+                                  <TableHead>FTDH ID</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {txns.map((txn) => (
+                                  <TableRow key={txn.id}>
+                                    <TableCell>
+                                      <Checkbox
+                                        checked={selectedManualTransactionIds.includes(txn.id)}
+                                        onCheckedChange={() => handleToggleManualTransaction(txn.id)}
+                                        className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                      />
+                                    </TableCell>
+                                    <TableCell className="font-medium">{txn.transaction_id}</TableCell>
+                                    <TableCell>
+                                      <p>{txn.branch_name || '—'}</p>
+                                      <p className="text-xs text-[#afafaf]">{txn.branch_code || '—'}</p>
+                                    </TableCell>
+                                    <TableCell className="font-medium text-[#1e8fff]">{formatCurrency(txn.amount)}</TableCell>
+                                    <TableCell>
+                                      <p>{txn.beneficiary_bank || '—'}</p>
+                                      <p className="text-xs text-[#afafaf]"><DataMasker value={txn.beneficiary_account} type="account" /></p>
+                                    </TableCell>
+                                    <TableCell>
+                                      <p>{txn.transaction_date ? format(new Date(txn.transaction_date), 'dd/MM/yyyy') : '—'}</p>
+                                      <p className="text-xs text-[#afafaf]">{txn.transaction_time?.slice(0, 5) || '--:--'}</p>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Input
+                                        placeholder="Enter ID"
+                                        value={transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? ''}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          setTransactionFtdhIds((prev) => ({ ...prev, [txn.id]: value }));
+                                          setManualTransactions((prev) => prev.map((t) => (
+                                            t.id === txn.id ? { ...t, ftdh_id: value } : t
+                                          )));
+                                        }}
+                                        className="h-8 bg-[#f9fafb]"
+                                      />
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setCurrentStep(2)}>
+              <Button variant="outline" onClick={() => setCurrentStep(1)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
               <Button
-                onClick={() => setCurrentStep(4)}
-                disabled={!canProceedToStep4}
+                onClick={handleSubmit}
+                disabled={!canProceedToStep4 || isSubmitting}
+                className="min-w-[220px] rounded-full bg-[#2064b7] hover:bg-[#1b56a0]"
               >
-                Review Case
-                <ArrowRight className="ml-2 h-4 w-4" />
+                {isSubmitting ? 'Saving...' : 'Save'}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* ═══════════════════ Step 4: Review & Submit ═════════════════════ */}
-      {currentStep === 4 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Review & Submit</CardTitle>
-            <CardDescription>
-              Review all information before creating the case
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Customer Summary */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Customer Information</h4>
-                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(1)}>
-                  Edit
-                </Button>
-              </div>
-              <div className="p-4 border rounded-lg grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Name</span>
-                  <p className="font-medium">{selectedCustomer?.name}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">CNIC</span>
-                  <p>
-                    <DataMasker value={selectedCustomer?.cnic} type="cnic" />
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Accounts</span>
-                  <p className="font-medium">{selectedCustomer?.accounts.length}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">City</span>
-                  <p className="font-medium">{selectedCustomer?.city}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Transactions Summary — grouped by account */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">
-                  Disputed Transactions ({allSelectedTxns.length})
-                </h4>
-                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(2)}>
-                  Edit
-                </Button>
-              </div>
-
-              {/* Per-account groups */}
-              {selectedCustomer?.accounts.map((account) => {
-                const accTxns = (accountTransactions[account.id] || []).filter((t) =>
-                  selectedTransactionIds.includes(t.id)
-                );
-                if (accTxns.length === 0) return null;
-
-                return (
-                  <div key={account.id} className="p-4 border rounded-lg space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Account:</span>
-                      <DataMasker value={account.account_number} type="account" />
-                      <Badge variant="outline" className="text-xs">
-                        {account.account_type}
-                      </Badge>
-                      <span className="text-muted-foreground ml-auto">
-                        {accTxns.length} txn{accTxns.length !== 1 ? 's' : ''} ·{' '}
-                        {formatCurrency(accTxns.reduce((s, t) => s + t.amount, 0))}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Manual transactions group */}
-              {manualTransactions.length > 0 && (
-                <div className="p-4 border rounded-lg border-dashed space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Manually Added:</span>
-                    <span className="font-medium">
-                      {manualTransactions.length} transaction{manualTransactions.length !== 1 ? 's' : ''}
-                    </span>
-                    <span className="text-muted-foreground ml-auto">
-                      {formatCurrency(manualTransactions.reduce((s, t) => s + t.amount, 0))}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Totals */}
-              <div className="p-4 border rounded-lg bg-muted/50">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Total Transactions</span>
-                    <p className="font-medium">{allSelectedTxns.length}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Total Disputed Amount</span>
-                    <p className="font-medium text-lg">{formatCurrency(totalDisputedAmount)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Case Details Summary */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Case Details</h4>
-                <Button variant="ghost" size="sm" onClick={() => setCurrentStep(3)}>
-                  Edit
-                </Button>
-              </div>
-              <div className="p-4 border rounded-lg grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Scenario</span>
-                  <p className="font-medium">{caseDetails.scenario || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Investigation Officer</span>
-                  <p className="font-medium">{caseDetails.investigationOfficer || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Complaint No</span>
-                  <p className="font-medium">{caseDetails.complaintNo || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Case Receiving Channel</span>
-                  <p className="font-medium">
-                    {channels.find((c) => c.value === caseDetails.caseReceivingChannel)?.label || '—'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Received Date</span>
-                  <p className="font-medium">{caseDetails.caseReceivedDate}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Dispute Channel</span>
-                  <p className="font-medium">
-                    {channels.find((c) => c.value === caseDetails.channel)?.label}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Fraud Type</span>
-                  <p className="font-medium">
-                    {fraudTypes.find((t) => t.value === caseDetails.fraudType)?.label}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Branch Code</span>
-                  <p className="font-medium">{caseDetails.branchCode || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Customer Reported Late</span>
-                  <p className="font-medium">{caseDetails.customerReportedLate || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Date(s) Incident Occurred</span>
-                  <p className="font-medium">{caseDetails.dateIncidentOccurred || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Transaction Period</span>
-                  <p className="font-medium">{caseDetails.transactionPeriod || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">No. of Transactions</span>
-                  <p className="font-medium">{caseDetails.noOfTransactions || allSelectedTxns.length || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Dispute Amount At Risk</span>
-                  <p className="font-medium">
-                    {caseDetails.disputeAmountAtRisk
-                      ? formatCurrency(Number(caseDetails.disputeAmountAtRisk))
-                      : formatCurrency(totalDisputedAmount)}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">FMS Alert Generated</span>
-                  <p className="font-medium">{caseDetails.fmsAlertGenerated || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Expected Recovery (ON-US)</span>
-                  <p className="font-medium">{caseDetails.expectedRecoveryOnUs || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Expected Recovery (Member/Bank)</span>
-                  <p className="font-medium">{caseDetails.expectedRecoveryMemberBank || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">FTDH Filled</span>
-                  <p className="font-medium">{caseDetails.ftdhFilled || '—'}</p>
-                </div>
-                {caseDetails.ftdhId && (
-                  <div>
-                    <span className="text-muted-foreground">FTDH ID</span>
-                    <p className="font-medium">{caseDetails.ftdhId}</p>
-                  </div>
-                )}
-              </div>
-              {caseDetails.disputedTransactionDetails && (
-                <div className="p-4 border rounded-lg text-sm">
-                  <span className="text-muted-foreground">Disputed Transaction Details</span>
-                  <p className="mt-1">{caseDetails.disputedTransactionDetails}</p>
-                </div>
-              )}
-              {caseDetails.notes && (
-                <div className="p-4 border rounded-lg text-sm">
-                  <span className="text-muted-foreground">Notes</span>
-                  <p className="mt-1">{caseDetails.notes}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(3)}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-              <Button onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? 'Creating Case...' : 'Create Case'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ═══════════════════ Step 4: Review & Submit ═════════════════════
+      {currentStep === 3 && (
+        <Card>...</Card>
       )}
+      ═══════════════════════════════════════════════════════════════════ */}
 
       {/* Manual Transaction Modal */}
       <ManualTransactionModal

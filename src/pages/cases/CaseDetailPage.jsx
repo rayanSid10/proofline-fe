@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -6,7 +5,6 @@ import {
   Play,
   Eye,
   AlertTriangle,
-  Headphones,
   Pencil,
   Trash2,
 } from 'lucide-react';
@@ -14,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
 import { fraudTypes, channels } from '@/data/mockCases';
 import { getAllCases } from '@/data/caseStorage';
 
@@ -30,7 +27,6 @@ function formatCurrency(amount) {
 export function CaseDetailPage({ currentRole = 'investigator' }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [transcriptionOpen, setTranscriptionOpen] = useState(false);
 
   const caseData = getAllCases().find((c) => c.id === parseInt(id));
   const isSupervisor = currentRole === 'supervisor' || currentRole === 'admin';
@@ -53,14 +49,6 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
   const fraudTypeLabel =
     fraudTypes.find((t) => t.value === caseData.fraud_type)?.label ||
     caseData.fraud_type;
-  const caseReceivingChannelLabel =
-    channels.find((c) => c.value === (caseData.case_receiving_channel || caseData.channel))?.label ||
-    caseData.case_receiving_channel ||
-    caseData.channel;
-  const disputeChannelLabel =
-    channels.find((c) => c.value === (caseData.dispute_channel || caseData.channel))?.label ||
-    caseData.dispute_channel ||
-    caseData.channel;
   const isSubmittedForSupervisor = ['pending_review', 'approved', 'rejected', 'closed'].includes(caseData.status);
   const investigationPath = isSupervisor
     ? (isSubmittedForSupervisor ? `/cases/${id}/supervisor-report` : `/cases/${id}`)
@@ -277,22 +265,9 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1">
-            <p className="text-sm text-muted-foreground">
-              Intake channel: {caseReceivingChannelLabel || '—'} &bull; Dispute channel: {disputeChannelLabel || '—'}
-            </p>
-            <Button variant="outline" size="sm" onClick={() => setTranscriptionOpen(true)}>
-              <Headphones className="mr-2 h-4 w-4" />
-              Audio Evidence
-            </Button>
-          </div>
+          <div className="mt-3 px-1" />
         </CardContent>
       </Card>
-
-      <TranscriptionPanel
-        open={transcriptionOpen}
-        onOpenChange={setTranscriptionOpen}
-      />
     </div>
   );
 }
