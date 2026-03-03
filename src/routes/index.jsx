@@ -7,6 +7,7 @@ import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
 import CaseImportPage from '@/pages/cases/CaseImportPage';
 import InvestigationFormPage from '@/pages/cases/InvestigationFormPage';
+import InvestigationReviewPage from '@/pages/cases/InvestigationReviewPage';
 import SupervisorInvestigationReportPage from '@/pages/cases/SupervisorInvestigationReportPage';
 import SupervisorReviewPage from '@/pages/cases/SupervisorReviewPage';
 import ReportViewPage from '@/pages/cases/ReportViewPage';
@@ -91,6 +92,11 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
             <CreateCasePage />
           </PermissionGuard>
         } />
+        <Route path="/cases/:id/edit" element={
+          <PermissionGuard allowed={canAccessIBMB(currentRole)}>
+            <CreateCasePage />
+          </PermissionGuard>
+        } />
         <Route path="/cases/import" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
             <CaseImportPage />
@@ -98,12 +104,17 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         } />
         <Route path="/cases/:id" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
-            <CaseDetailPage currentRole={currentRole} />
+            <CaseDetailPage currentRole={currentRole} currentUser={user} />
           </PermissionGuard>
         } />
         <Route path="/cases/:id/investigation" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
-            <InvestigationFormPage />
+            <InvestigationFormPage currentRole={currentRole} currentUser={user} />
+          </PermissionGuard>
+        } />
+        <Route path="/cases/:id/investigation-review" element={
+          <PermissionGuard allowed={canAccessIBMB(currentRole)}>
+            <InvestigationReviewPage currentRole={currentRole} currentUser={user} />
           </PermissionGuard>
         } />
         <Route path="/cases/:id/supervisor-report" element={
@@ -113,7 +124,7 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         } />
         <Route path="/cases/:id/investigate" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
-            <InvestigationFormPage />
+            <InvestigationFormPage currentRole={currentRole} currentUser={user} />
           </PermissionGuard>
         } />
         <Route path="/cases/:id/review" element={

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, Link, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
   ArrowLeft,
@@ -45,19 +45,36 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { ManualTransactionModal } from '@/components/forms/ManualTransactionModal';
 import { cn } from '@/lib/utils';
 import { searchCustomers, getTransactionsForAccount } from '@/data/mockCustomers';
-import { fraudTypes, channels } from '@/data/mockCases';
-import { addImportedCases, getAllCases } from '@/data/caseStorage';
+import { fraudTypes } from '@/data/mockCases';
+import { addImportedCases, assignNextInvestigator, getAllCases, upsertCase } from '@/data/caseStorage';
 
 const steps = [
   { id: 1, title: 'Select Transactions', icon: CreditCard },
   { id: 2, title: 'Case Details', icon: FileText },
   // { id: 3, title: 'Review & Submit', icon: ClipboardList }, // kept for future use
+];
+
+const caseReceivedChannelOptions = [
+  { value: 'Customer Experience (CX)', label: 'Customer Experience (CX)' },
+  { value: 'Complaint Resolution Unit (CRU)', label: 'Complaint Resolution Unit (CRU)' },
+  { value: 'Dispute Resolution Unit (DRU)', label: 'Dispute Resolution Unit (DRU)' },
+  { value: 'Detection Unit - FRMU', label: 'Detection Unit - FRMU' },
+  { value: 'Retail Banking / Business', label: 'Retail Banking / Business' },
+  { value: 'LEA / BMP / Regulator', label: 'LEA / BMP / Regulator' },
+  { value: 'Human Resource', label: 'Human Resource' },
+  { value: 'Whistle Blow', label: 'Whistle Blow' },
 ];
 
 function formatCurrency(amount) {
@@ -73,6 +90,11 @@ function maskAccountNumber(num) {
   const clean = String(num);
   if (clean.length <= 4) return clean;
   return `**** **** ${clean.slice(-4)}`;
+}
+
+function normalizeToArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
 }
 
 function StepIndicator({ currentStep }) {
@@ -249,7 +271,13 @@ function AccountTransactionSection({
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function CreateCasePage() {
+  const { id } = useParams();
   const navigate = useNavigate();
+  const editCaseId = id ? parseInt(id, 10) : null;
+  const isEditMode = Number.isFinite(editCaseId);
+  const caseToEdit = isEditMode
+    ? getAllCases().find((c) => Number(c.id) === editCaseId)
+    : null;
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -283,8 +311,7 @@ export function CreateCasePage() {
     investigationOfficer: '',
     complaintNo: '',
     caseReceivingChannel: '',
-    caseReportingChannel: '',
-    caseReceivedChannel: '',
+    caseReceivedChannel: [],
     caseReceivedDate: format(new Date(), 'yyyy-MM-dd'),
     branchCode: '',
     customerReportedLate: '',
@@ -302,6 +329,189 @@ export function CreateCasePage() {
     ftdhId: '',
     notes: '',
   });
+
+  useEffect(() => {
+    if (!isEditMode) return;
+
+    const currentCase = getAllCases().find((c) => Number(c.id) === editCaseId);
+    if (!currentCase) return;
+
+    const query = String(currentCase.customer?.cnic || currentCase.customer?.account_number || '').trim();
+    const matchedCustomers = query
+      ? searchCustomers(query).filter(
+          (customer) =>
+            customer.cnic === query ||
+            customer.accounts.some((account) => account.account_number === query)
+        )
+      : [];
+
+    const fallbackAccountId = `edit-${currentCase.id}`;
+    const fallbackCustomer = {
+      ...currentCase.customer,
+      accounts: [
+        {
+          id: fallbackAccountId,
+          account_number: currentCase.customer?.account_number || '',
+          account_type: 'current',
+          account_status: 'active',
+        },
+      ],
+    };
+
+    const selectedCustomerForEdit = matchedCustomers[0] || fallbackCustomer;
+    const accountsForEdit =
+      (selectedCustomerForEdit.accounts || []).map((account) => ({
+        ...account,
+        customer: selectedCustomerForEdit,
+      })) || [];
+
+    const fetchedTransactionsByAccount = {};
+    accountsForEdit.forEach((account) => {
+      fetchedTransactionsByAccount[account.id] = getTransactionsForAccount(account.id) || [];
+    });
+
+    const existingTransactions = currentCase.transactions || [];
+    const primaryAccountId = accountsForEdit[0]?.id;
+
+    if (primaryAccountId) {
+      const existingKeySet = new Set(
+        (fetchedTransactionsByAccount[primaryAccountId] || []).map(
+          (txn) => `${String(txn.id)}::${String(txn.transaction_id || '')}`
+        )
+      );
+
+      const missingCaseTransactions = existingTransactions.filter((txn) => {
+        const key = `${String(txn.id)}::${String(txn.transaction_id || '')}`;
+        return !existingKeySet.has(key);
+      });
+
+      if (missingCaseTransactions.length > 0) {
+        fetchedTransactionsByAccount[primaryAccountId] = [
+          ...(fetchedTransactionsByAccount[primaryAccountId] || []),
+          ...missingCaseTransactions,
+        ];
+      }
+    }
+
+    const fetchedTxnIds = new Set(
+      Object.values(fetchedTransactionsByAccount)
+        .flat()
+        .map((txn) => txn.id)
+    );
+    const allFetchedTransactions = Object.values(fetchedTransactionsByAccount).flat();
+    const matchedSystemTransactions = [];
+    const manualOnlyTransactions = [];
+
+    existingTransactions.forEach((existingTxn) => {
+      const match = allFetchedTransactions.find((fetchedTxn) => {
+        if (fetchedTxn.id === existingTxn.id) return true;
+        if (String(fetchedTxn.id) === String(existingTxn.id)) return true;
+        if (
+          existingTxn.transaction_id &&
+          fetchedTxn.transaction_id &&
+          existingTxn.transaction_id === fetchedTxn.transaction_id
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (match) {
+        matchedSystemTransactions.push(match);
+      } else {
+        manualOnlyTransactions.push(existingTxn);
+      }
+    });
+
+    const selectedSystemIds = [...new Set(matchedSystemTransactions.map((txn) => txn.id))];
+    const selectedManualIds = manualOnlyTransactions.map((txn) => txn.id);
+    const perTxnFtdhIds = existingTransactions.reduce((acc, txn) => {
+      if (txn?.id != null) {
+        acc[txn.id] = txn.ftdh_id || '';
+      }
+      return acc;
+    }, {});
+
+    const selectedMap = Object.fromEntries(
+      accountsForEdit.map((acc) => {
+        const accountTxns = fetchedTransactionsByAccount[acc.id] || [];
+        const hasSelectedTxn = accountTxns.some((txn) => selectedSystemIds.includes(txn.id));
+        return [acc.id, hasSelectedTxn];
+      })
+    );
+    const selectedSystemIdSet = new Set(selectedSystemIds.map((id) => String(id)));
+    const prefilledDateRanges = {};
+
+    accountsForEdit.forEach((account) => {
+      const accountTxns = fetchedTransactionsByAccount[account.id] || [];
+      const selectedDates = accountTxns
+        .filter((txn) => selectedSystemIdSet.has(String(txn.id)))
+        .map((txn) => txn.transaction_date)
+        .filter(Boolean)
+        .sort();
+
+      if (selectedDates.length > 0) {
+        prefilledDateRanges[account.id] = {
+          dateFrom: selectedDates[0],
+          dateTo: selectedDates[selectedDates.length - 1],
+        };
+      } else if (accountsForEdit.length === 1) {
+        const existingTxnDates = existingTransactions
+          .map((txn) => txn.transaction_date)
+          .filter(Boolean)
+          .sort();
+
+        if (existingTxnDates.length > 0) {
+          prefilledDateRanges[account.id] = {
+            dateFrom: existingTxnDates[0],
+            dateTo: existingTxnDates[existingTxnDates.length - 1],
+          };
+        }
+      }
+    });
+
+    setSearchQuery(query);
+    setSearchResults(matchedCustomers);
+    setHasSearched(accountsForEdit.length > 0);
+    setFoundAccounts(accountsForEdit);
+    setSelectedFoundAccountIds(selectedMap);
+    setExpandedFoundAccountId(
+      accountsForEdit.find((acc) => selectedMap[acc.id])?.id || accountsForEdit[0]?.id || null
+    );
+    setSelectedCustomer(selectedCustomerForEdit);
+    setAccountTransactions(fetchedTransactionsByAccount);
+    setDateRanges(prefilledDateRanges);
+
+    setSelectedTransactionIds(selectedSystemIds);
+    setStep2VisibleTransactionIds(selectedSystemIds);
+    setManualTransactions(manualOnlyTransactions);
+    setSelectedManualTransactionIds(selectedManualIds);
+    setTransactionFtdhIds(perTxnFtdhIds);
+
+    const validReceivedChannelValues = new Set(caseReceivedChannelOptions.map((o) => o.value));
+    const parsedCaseReceivingChannels = String(currentCase.case_receiving_channel || currentCase.channel || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((value) => value && validReceivedChannelValues.has(value));
+
+    setCaseDetails((prev) => ({
+      ...prev,
+      referenceNumber: currentCase.reference_number || prev.referenceNumber,
+      complaintNo: currentCase.complaint_number || prev.complaintNo,
+      caseReceivedChannel: parsedCaseReceivingChannels,
+      caseReceivingChannel: parsedCaseReceivingChannels.join(', '),
+      caseReceivedDate: currentCase.case_received_date || prev.caseReceivedDate,
+      fraudType: currentCase.fraud_type || prev.fraudType,
+      branchCode: currentCase.branch_code || prev.branchCode,
+      expectedRecoveryOnUs: currentCase.expected_recovery_onus || prev.expectedRecoveryOnUs,
+      expectedRecoveryMemberBank:
+        currentCase.expected_recovery_member_bank || prev.expectedRecoveryMemberBank,
+      disputeAmountAtRisk: String(currentCase.total_disputed_amount || prev.disputeAmountAtRisk || ''),
+      noOfTransactions: String(existingTransactions.length || prev.noOfTransactions || ''),
+    }));
+
+    setCurrentStep(1);
+  }, [isEditMode, editCaseId]);
 
   // ─── Search Logic ─────────────────────────────────────────────────────
 
@@ -465,7 +675,10 @@ export function CreateCasePage() {
       ...prev,
       referenceNumber: prev.referenceNumber || derivedReference,
       complaintNo: prev.complaintNo || derivedComplaint,
-      caseReceivedChannel: prev.caseReceivedChannel || prev.caseReceivingChannel || '',
+      caseReceivedChannel:
+        normalizeToArray(prev.caseReceivedChannel).length > 0
+          ? normalizeToArray(prev.caseReceivedChannel)
+          : normalizeToArray(prev.caseReceivingChannel),
       noOfTransactions: prev.noOfTransactions || String(selectedTransactionIds.length),
       disputeAmountAtRisk:
         prev.disputeAmountAtRisk ||
@@ -579,10 +792,15 @@ export function CreateCasePage() {
   const canProceedToStep3 = allSelectedTxns.length > 0;
   const canProceedToStep4 =
     caseDetails.complaintNo &&
-    caseDetails.caseReportingChannel &&
-    caseDetails.caseReceivedChannel &&
+    normalizeToArray(caseDetails.caseReceivedChannel).length > 0 &&
     caseDetails.caseReceivedDate &&
     allSelectedTxns.length > 0;
+
+  const selectedReceivedChannels = normalizeToArray(caseDetails.caseReceivedChannel);
+  const selectedReceivedChannelLabels = selectedReceivedChannels.map((value) => {
+    const option = caseReceivedChannelOptions.find((ch) => ch.value === value);
+    return option?.label || value;
+  });
 
   const selectedFoundAccounts = foundAccounts.filter((acc) => selectedFoundAccountIds[acc.id]);
 
@@ -596,7 +814,9 @@ export function CreateCasePage() {
       const allCases = getAllCases();
       const nextId = allCases.reduce((maxId, c) => Math.max(maxId, Number(c?.id) || 0), 0) + 1;
       const year = new Date().getFullYear();
-      const referenceNumber = `IBMB-${year}-${String(nextId).padStart(6, '0')}`;
+      const referenceNumber = isEditMode
+        ? (caseToEdit?.reference_number || `IBMB-${year}-${String(editCaseId).padStart(6, '0')}`)
+        : `IBMB-${year}-${String(nextId).padStart(6, '0')}`;
 
       const txnsToSave = allSelectedTxns.map((txn, idx) => ({
         id: txn.id || `MANUAL-${Date.now()}-${idx}`,
@@ -616,7 +836,7 @@ export function CreateCasePage() {
       }));
 
       const createdCase = {
-        id: nextId,
+        id: isEditMode ? editCaseId : nextId,
         reference_number: referenceNumber,
         customer: {
           id: selectedCustomer?.id ?? null,
@@ -628,25 +848,34 @@ export function CreateCasePage() {
           region: selectedCustomer?.region || 'N/A',
           mobile: selectedCustomer?.mobile || '',
         },
-        status: 'open',
-        investigation_status: 'in_progress',
-        channel: caseDetails.caseReportingChannel || 'other',
+        status: caseToEdit?.status || 'open',
+        investigation_status: caseToEdit?.investigation_status || 'in_progress',
+        channel: selectedReceivedChannels[0] || 'other',
+        case_receiving_channel: selectedReceivedChannels.join(', '),
         fraud_type: caseDetails.fraudType || 'other',
         complaint_number: caseDetails.complaintNo,
         total_disputed_amount: totalDisputedAmount,
-        created_at: new Date().toISOString(),
+        created_at: caseToEdit?.created_at || new Date().toISOString(),
+        assigned_to: isEditMode ? caseToEdit?.assigned_to : assignNextInvestigator(),
+        created_by: caseToEdit?.created_by,
         case_received_date: caseDetails.caseReceivedDate,
         transactions: txnsToSave,
-        actions: [],
+        actions: caseToEdit?.actions || [],
       };
 
-      addImportedCases([createdCase]);
-
-      toast.success('Case created successfully', {
-        description: `Reference: ${referenceNumber}`,
-      });
-
-      navigate('/cases');
+      if (isEditMode) {
+        upsertCase(createdCase);
+        toast.success('Case updated successfully', {
+          description: `Reference: ${referenceNumber}`,
+        });
+        navigate(`/cases/${editCaseId}`);
+      } else {
+        addImportedCases([createdCase]);
+        toast.success('Case created successfully', {
+          description: `Reference: ${referenceNumber}${createdCase.assigned_to?.name ? ` • Assigned to ${createdCase.assigned_to.name}` : ''}`,
+        });
+        navigate('/cases');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -663,9 +892,9 @@ export function CreateCasePage() {
           </Link>
         </Button>
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Create New Case</h2>
+          <h2 className="text-2xl font-bold tracking-tight">{isEditMode ? 'Update Case' : 'Create New Case'}</h2>
           <p className="text-muted-foreground">
-            File a new IB/MB fraud dispute case
+            {isEditMode ? 'Edit case details and disputed transactions' : 'File a new IB/MB fraud dispute case'}
           </p>
         </div>
       </div>
@@ -714,6 +943,8 @@ export function CreateCasePage() {
                     const isSelected = !!selectedFoundAccountIds[account.id];
                     const isExpanded = expandedFoundAccountId === account.id;
                     const filteredTxns = getFilteredTransactions(account.id);
+                    const selectedFilteredCount = filteredTxns.filter((txn) => selectedTransactionIds.includes(txn.id)).length;
+                    const allFilteredSelected = filteredTxns.length > 0 && selectedFilteredCount === filteredTxns.length;
 
                     return (
                       <div key={account.id} className="rounded-md border border-[#dae1e7] overflow-hidden">
@@ -792,7 +1023,14 @@ export function CreateCasePage() {
                               <Table>
                                 <TableHeader>
                                   <TableRow className="bg-[#edf1f4] hover:bg-[#edf1f4]">
-                                    <TableHead className="w-10" />
+                                    <TableHead className="w-10">
+                                      <Checkbox
+                                        checked={allFilteredSelected}
+                                        onCheckedChange={() => handleToggleAll(account.id, filteredTxns)}
+                                        className="border-[#1e8fff] data-[state=checked]:bg-[#1e8fff] data-[state=checked]:border-[#1e8fff]"
+                                        aria-label="Select all transactions for account"
+                                      />
+                                    </TableHead>
                                     <TableHead className="text-[11px] text-[#4c4c4c]">Transaction ID</TableHead>
                                     <TableHead className="text-[11px] text-[#4c4c4c]">Branch</TableHead>
                                     <TableHead className="text-[11px] text-[#4c4c4c]">Amount</TableHead>
@@ -1111,37 +1349,42 @@ export function CreateCasePage() {
                     <Label>
                       Case Received Channel <span className="text-[#E20015]">*</span>
                     </Label>
-                    <Input
-                      placeholder="Enter Channel"
-                      value={caseDetails.caseReceivedChannel}
-                      onChange={(e) =>
-                        setCaseDetails({
-                          ...caseDetails,
-                          caseReceivedChannel: e.target.value,
-                          caseReceivingChannel: e.target.value,
-                        })
-                      }
-                      className="h-[47px] border-[#dae1e7] bg-[#f9fafb] text-[16px]"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label>
-                      Case Reporting Channel <span className="text-[#E20015]">*</span>
-                    </Label>
-                    <Select
-                      value={caseDetails.caseReportingChannel}
-                      onValueChange={(value) => setCaseDetails({ ...caseDetails, caseReportingChannel: value })}
-                    >
-                      <SelectTrigger className="w-full !h-[47px] min-h-[47px] py-0 bg-[#f9fafb] border-[#dae1e7] text-[16px] text-[#4C4C4C]">
-                        <SelectValue placeholder="Select reporting channel" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ibft_atm">IBFT/ATM</SelectItem>
-                        <SelectItem value="poc_atm">POC/ATM</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-[47px] w-full justify-between border-[#dae1e7] bg-[#f9fafb] px-3 text-[16px] font-normal text-[#4C4C4C] hover:bg-[#f9fafb]"
+                        >
+                          <span className="truncate text-left">
+                            {selectedReceivedChannelLabels.length > 0
+                              ? selectedReceivedChannelLabels.join(', ')
+                              : 'Select received channel(s)'}
+                          </span>
+                          <ChevronDown className="h-4 w-4 text-[#7C7C7C]" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                        {caseReceivedChannelOptions.map((ch) => (
+                          <DropdownMenuCheckboxItem
+                            key={ch.value}
+                            checked={selectedReceivedChannels.includes(ch.value)}
+                            onCheckedChange={(checked) => {
+                              const next = checked
+                                ? [...new Set([...selectedReceivedChannels, ch.value])]
+                                : selectedReceivedChannels.filter((v) => v !== ch.value);
+                              setCaseDetails({
+                                ...caseDetails,
+                                caseReceivedChannel: next,
+                                caseReceivingChannel: next.join(', '),
+                              });
+                            }}
+                          >
+                            {ch.label}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </div>

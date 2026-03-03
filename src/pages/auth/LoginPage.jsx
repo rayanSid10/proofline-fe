@@ -53,6 +53,11 @@ export function LoginPage({ onLogin }) {
         avatar: null,
       };
 
+      if (selectedRole === 'investigator') {
+        mockUser.id = '2';
+        mockUser.name = 'Ali Raza';
+      }
+
       if (onLogin) {
         onLogin(mockUser);
       }
@@ -151,6 +156,12 @@ export function LoginPage({ onLogin }) {
                 Select a role to demo different user permissions
               </p>
             </div>
+
+            {selectedRole === 'investigator' && (
+              <p className="text-xs text-muted-foreground">
+                Investigator login is fixed to Ali Raza for demo assignment controls.
+              </p>
+            )}
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={isLoading}>

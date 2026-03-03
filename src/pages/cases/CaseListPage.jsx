@@ -351,7 +351,7 @@ export function CaseListPage({ currentRole = 'investigator' }) {
                             title="Edit"
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/cases/${caseItem.id}`);
+                              navigate(`/cases/${caseItem.id}/edit`);
                             }}
                           >
                             <Pencil className="h-4 w-4 text-gray-500" />

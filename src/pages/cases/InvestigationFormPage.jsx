@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ArrowLeft, ArrowRight, Check, Cloud, X, FileText, Eye, Trash2, Upload, Sparkles, CheckCircle2, Save, AlertTriangle, CalendarDays, Headphones } from 'lucide-react';
 import { toast } from 'sonner';
@@ -151,9 +151,10 @@ const DateInputWithIcon = ({ type = 'date', value, onChange, placeholder }) => {
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-export function InvestigationFormPage() {
+export function InvestigationFormPage({ currentRole = 'investigator', currentUser = null }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState(0);
@@ -169,14 +170,21 @@ export function InvestigationFormPage() {
   const [logParseResult, setLogParseResult] = useState(null); // { matches, unmatchedLines }
   const [showLogBanner, setShowLogBanner] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
+  const hydratedFromDraftRef = useRef(false);
 
   const caseData = getAllCases().find((c) => c.id === parseInt(id));
+  const isSupervisorOrAdmin = currentRole === 'supervisor' || currentRole === 'admin';
+  const isAssignedInvestigator =
+    currentRole === 'investigator' &&
+    String(currentUser?.name || '').trim().toLowerCase() ===
+      String(caseData?.assigned_to?.name || '').trim().toLowerCase();
+  const canAccessInvestigation = isSupervisorOrAdmin || isAssignedInvestigator;
 
   const [f, setF] = useState({
     // Step 1: Customer / Complaint Details
     investigationOfficer: '', complaintNo: '', caseReferenceNo: '', caseReceivingChannel: '',
     disputeAmountAtRisk: '', expectedRecovery: 'NIL', expectedRecoveryMemberBank: 'NIL', disputedTxnDetails: '', fmsAlertGenerated: 'no',
-    incidentDate: '', caseReceivingDate: '',
+    incidentDate: '', incidentDateTo: '', caseReceivingDate: '',
     customerNameField: '', customerAccountNoField: '', branchCodeField: '',
     // Step 2: Investigation — Customer Contact
     cxCallDatetime: '', initialCustomerStance: '', ioCallMade: '', contactEstablished: '',
@@ -192,7 +200,9 @@ export function InvestigationFormPage() {
     txnPattern: '', deviceChange: 'no', ipChange: 'no', productsAvailed: '', otpDelivered: '',
     // Step 3: Action Taken
     deviceBlockedFlag: '', fraudsterNumberReported: '', ftdhStatus: '', fundLayeredFlag: '',
-    pstrFlag: '', piiReviewedFlag: '', suspectedStaffName: '', frmuReviewFlag: '', frmAlert: '',
+    pstrFlag: '', piiReviewedFlag: '', suspectedStaffName: 'NA', suspectedStaffFeedback: 'NA',
+    frmuReviewFlag: '', customerAccountOpeningDate: '2024-12-12', customerAccountType: 'Saving Account',
+    kycReviewDebitCreditCount: '6/6', customerProfileKyc: 'Salaried Person', frmAlert: '',
     // Step 4: System Facts
     gapIdentified: '', factFindings: '', controlBreaches: '', controlBreachesObserved: '',
     rootCause: '', fraudTypeSystem: '',
@@ -201,6 +211,19 @@ export function InvestigationFormPage() {
   });
 
   useEffect(() => {
+    const draft = location.state?.draftForm;
+    const draftFiles = location.state?.uploadedFiles;
+    if (draft && typeof draft === 'object') {
+      setF(draft);
+      hydratedFromDraftRef.current = true;
+    }
+    if (Array.isArray(draftFiles)) {
+      setUploadedFiles(draftFiles);
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (hydratedFromDraftRef.current) return;
     if (!caseData) return;
     const txDates = caseData.transactions?.map(t => new Date(t.transaction_date)) || [];
     const minD = txDates.length ? format(new Date(Math.min(...txDates)), 'dd-MMM-yyyy') : '—';
@@ -214,7 +237,8 @@ export function InvestigationFormPage() {
       caseReceivingChannel: ch || '',
       disputeAmountAtRisk: caseData.total_disputed_amount ? formatCurrency(caseData.total_disputed_amount) : '',
       disputedTxnDetails: `${minD} to ${maxD}`,
-      incidentDate: caseData.case_received_date || '',
+      incidentDate: txDates.length ? format(new Date(Math.min(...txDates)), 'yyyy-MM-dd') : (caseData.case_received_date || ''),
+      incidentDateTo: txDates.length ? format(new Date(Math.max(...txDates)), 'yyyy-MM-dd') : (caseData.case_received_date || ''),
       caseReceivingDate: caseData.case_received_date || '',
       customerNameField: caseData.customer?.name || '',
       customerAccountNoField: caseData.customer?.account_number || '',
@@ -309,6 +333,14 @@ export function InvestigationFormPage() {
     await new Promise(r => setTimeout(r, 500));
     setIsSubmitting(false); setShowSuccess(true);
   };
+  const handleReviewReport = () => {
+    navigate(`/cases/${id}/investigation-review`, {
+      state: {
+        draftForm: f,
+        uploadedFiles,
+      },
+    });
+  };
   const handleSuccessClose = () => { setShowSuccess(false); setSubmissionStep(0); navigate(`/cases/${id}`); };
 
   // File upload handlers
@@ -354,6 +386,18 @@ export function InvestigationFormPage() {
     </div>
   );
 
+  if (!canAccessInvestigation) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <h2 className="text-xl font-semibold">Access restricted</h2>
+        <p className="text-sm text-muted-foreground mt-2 text-center max-w-xl">
+          Only the assigned investigator ({caseData.assigned_to?.name || 'N/A'}) can start or continue this investigation.
+        </p>
+        <Button className="mt-4" onClick={() => navigate(`/cases/${id}`)}>Back to Case Details</Button>
+      </div>
+    );
+  }
+
   const customerName = caseData.customer.name;
   const customerCnic = caseData.customer.cnic;
   const customerAccount = caseData.customer.account_number;
@@ -388,14 +432,16 @@ export function InvestigationFormPage() {
               <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
               {isSaving ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button
-              variant="outline"
-              className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
-              onClick={() => activityLogRef.current?.click()}
-            >
-              <Upload className="w-4 h-4" />
-              Upload Activity Log
-            </Button>
+            {currentStep === 2 && (
+              <Button
+                variant="outline"
+                className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
+                onClick={() => activityLogRef.current?.click()}
+              >
+                <Upload className="w-4 h-4" />
+                Upload Activity Log
+              </Button>
+            )}
           </div>
         </div>
 
@@ -409,7 +455,7 @@ export function InvestigationFormPage() {
         />
 
         {/* Activity Log Parse Results Banner */}
-        {showLogBanner && logParseResult && (
+        {currentStep === 2 && showLogBanner && logParseResult && (
           <div className="bg-[#F0FDF4] border-b border-[#BBF7D0] px-6 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -551,8 +597,12 @@ export function InvestigationFormPage() {
                 <FormField isInput label="Branch Code" output={f.branchCodeField || '—'}>
                   <Input value={f.branchCodeField} onChange={e => set('branchCodeField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Date(s) Incident Occurred" output={`Disputed transactions debited on ${f.incidentDate}`}>
-                  <DateInputWithIcon type="date" value={f.incidentDate} onChange={e => set('incidentDate', e.target.value)} placeholder="dd/mm/yyyy" />
+                <FormField isInput label="Date(s) Incident Occurred" output={`Disputed transactions debited on ${f.incidentDate}${f.incidentDateTo ? ` to ${f.incidentDateTo}` : ''}`}>
+                  <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center w-full h-full px-2 py-1.5">
+                    <DateInputWithIcon type="date" value={f.incidentDate} onChange={e => set('incidentDate', e.target.value)} placeholder="Date 1" />
+                    <span className="text-[13px] font-medium text-[#6B7280]">to</span>
+                    <DateInputWithIcon type="date" value={f.incidentDateTo} onChange={e => set('incidentDateTo', e.target.value)} placeholder="Date 2" />
+                  </div>
                 </FormField>
                 <FormField isInput label="Case Receiving Date" output={`Customer called bank helpline on ${f.caseReceivingDate}`}>
                   <DateInputWithIcon type="date" value={f.caseReceivingDate} onChange={e => set('caseReceivingDate', e.target.value)} placeholder="dd/mm/yyyy" />
@@ -638,19 +688,19 @@ export function InvestigationFormPage() {
                 <FormField label="Initial Device (at the time of registration)" required><ReadOnlyValue value={f.initialDeviceId} /></FormField>
                 <FormField label="Customer Login ID (User Name)" required><ReadOnlyValue value={f.loginId} /></FormField>
                 <FormField label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required><ReadOnlyValue value={f.loginIp} /></FormField>
-                <FormField label="Change in Login ID / Password (02 months)" required output={out('credentialChange', f.credentialChange)}>
+                <FormField label="Date and Time of change of Login ID & Password (last 12 months from the date of disputed transactions)" required output={out('credentialChange', f.credentialChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.credentialChange==='yes'} onChange={v => set('credentialChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.credentialChange==='no'} onChange={v => set('credentialChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Change in T-PIN" required output={out('tpinChange', f.tpinChange)}>
+                <FormField label="Date and Time of change of TPin(last 12 months from the date of disputed transactions)" required output={out('tpinChange', f.tpinChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.tpinChange==='yes'} onChange={v => set('tpinChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.tpinChange==='no'} onChange={v => set('tpinChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="New Device Registration" required output={out('newDevice', f.newDevice)}>
+                <FormField label="Date and Time of change of New Device Registration" required output={out('newDevice', f.newDevice)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.newDevice==='yes'} onChange={v => set('newDevice', v)} label="Yes" />
                     <ChipOption value="no" selected={f.newDevice==='no'} onChange={v => set('newDevice', v)} label="No" />
@@ -659,14 +709,14 @@ export function InvestigationFormPage() {
 
                 {/* Limits & Behavioral Analysis */}
                 <SectionDivider title="Limits & Behavioral Analysis" />
-                <FormField label="Limit Enhancement" required output={out('limitEnhanced', f.limitEnhanced)}>
+                <FormField label="Date and Time of Limit Enhancement" required output={out('limitEnhanced', f.limitEnhanced)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.limitEnhanced==='yes'} onChange={v => set('limitEnhanced', v)} label="Yes" />
                     <ChipOption value="no" selected={f.limitEnhanced==='no'} onChange={v => set('limitEnhanced', v)} label="No" />
                   </div>
                 </FormField>
                 <FormField label="Customer Default / Previous Limit" required><ReadOnlyValue value={f.previousLimit} /></FormField>
-                <FormField label="Customer New Limit" required><ReadOnlyValue value={f.newLimit} /></FormField>
+                <FormField label="Customer New Limit, if Change Observed" required><ReadOnlyValue value={f.newLimit} /></FormField>
                 <FormField isInput label="Mode of Limit Enhancement" required>
                   <Input value={f.limitMode} onChange={e => set('limitMode', e.target.value)} placeholder="N/A" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
@@ -683,8 +733,8 @@ export function InvestigationFormPage() {
                     <ChipOption value="no" selected={f.ipChange==='no'} onChange={v => set('ipChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Consumer Product Availed" required><ReadOnlyValue value={f.productsAvailed} /></FormField>
-                <FormField label="SMS / OTP Delivered" required output={f.otpDelivered === 'yes' ? 'OTP was delivered to customer.' : f.otpDelivered === 'no' ? 'OTP was not delivered.' : '—'}>
+                <FormField label="Consumer Product Availed (Auto, PIL, CC, ETC)" required><ReadOnlyValue value={f.productsAvailed} /></FormField>
+                <FormField label="SMS / OTP Sent to the Customer" required output={f.otpDelivered === 'yes' ? 'OTP was delivered to customer.' : f.otpDelivered === 'no' ? 'OTP was not delivered.' : '—'}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.otpDelivered==='yes'} onChange={v => set('otpDelivered', v)} label="Yes" />
                     <ChipOption value="no" selected={f.otpDelivered==='no'} onChange={v => set('otpDelivered', v)} label="No" />
@@ -709,47 +759,56 @@ export function InvestigationFormPage() {
                     <ChipOption value="no" selected={f.deviceBlockedFlag==='no'} onChange={v => set('deviceBlockedFlag', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Fraudster / Perpetrator Mobile Number" output={out('fraudsterNumberReported', f.fraudsterNumberReported)}>
+                <FormField label="Fraudster / Perpetrator Mobile Number" required output={out('fraudsterNumberReported', f.fraudsterNumberReported)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.fraudsterNumberReported==='yes'} onChange={v => set('fraudsterNumberReported', v)} label="Yes" />
                     <ChipOption value="no" selected={f.fraudsterNumberReported==='no'} onChange={v => set('fraudsterNumberReported', v)} label="No" />
                   </div>
                 </FormField>
                 <FormField isInput label="FTDH Status / Recovery" large output={f.ftdhStatus ? 'Funds not available in beneficiary account.' : '—'}>
-                  <Textarea value={f.ftdhStatus} onChange={e => set('ftdhStatus', e.target.value)} placeholder="Enter FTDH status..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
+                  <Textarea value={f.ftdhStatus} onChange={e => set('ftdhStatus', e.target.value)} placeholder="As per FTDH , we observed the status as SF / NSF" className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
                 </FormField>
-                <FormField label="Fund Layered A/C" output={out('fundLayeredFlag', f.fundLayeredFlag)}>
+                <FormField label="Fund Layered A/C" required output={out('fundLayeredFlag', f.fundLayeredFlag)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.fundLayeredFlag==='yes'} onChange={v => set('fundLayeredFlag', v)} label="Yes" />
                     <ChipOption value="no" selected={f.fundLayeredFlag==='no'} onChange={v => set('fundLayeredFlag', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="PSTR Raised" output={out('pstrFlag', f.pstrFlag)}>
+                <FormField label="PSTR" required output={out('pstrFlag', f.pstrFlag)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.pstrFlag==='yes'} onChange={v => set('pstrFlag', v)} label="Yes" />
                     <ChipOption value="no" selected={f.pstrFlag==='no'} onChange={v => set('pstrFlag', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="P-II Reviewed" output={out('piiReviewedFlag', f.piiReviewedFlag)}>
+                <FormField label="P-II Reviewed" required output={out('piiReviewedFlag', f.piiReviewedFlag)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.piiReviewedFlag==='yes'} onChange={v => set('piiReviewedFlag', v)} label="Yes" />
                     <ChipOption value="no" selected={f.piiReviewedFlag==='no'} onChange={v => set('piiReviewedFlag', v)} label="No" />
                   </div>
                 </FormField>
                 <FormField isInput label="Suspected Staff Name (Optional)">
-                  <Input value={f.suspectedStaffName} onChange={e => set('suspectedStaffName', e.target.value)} placeholder="Enter name if applicable..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                  <Input value={f.suspectedStaffName} onChange={e => set('suspectedStaffName', e.target.value)} placeholder="NA" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField label="FRMU Review on Staff Feedback" output={f.frmuReviewFlag === 'accepted' ? 'Feedback accepted.' : f.frmuReviewFlag === 'not_accepted' ? 'Feedback not accepted.' : '—'}>
+                <FormField isInput label="Suspected Staff Feedback" large output={f.suspectedStaffFeedback || 'NA'}>
+                  <Textarea value={f.suspectedStaffFeedback} onChange={e => set('suspectedStaffFeedback', e.target.value)} placeholder="NA" className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
+                </FormField>
+                <FormField label="FRMU review on Staff Feedback" required output={f.frmuReviewFlag === 'accepted' ? 'Accepted' : f.frmuReviewFlag === 'not_accepted' ? 'Not Accepted' : 'NA'}>
                   <div className="flex gap-3">
                     <ChipOption value="accepted" selected={f.frmuReviewFlag==='accepted'} onChange={v => set('frmuReviewFlag', v)} label="Accepted" />
                     <ChipOption value="not_accepted" selected={f.frmuReviewFlag==='not_accepted'} onChange={v => set('frmuReviewFlag', v)} label="Not Accepted" />
                   </div>
                 </FormField>
-                <FormField label="FRM System Alert" output={out('frmAlert', f.frmAlert)}>
-                  <div className="flex gap-3">
-                    <ChipOption value="yes" selected={f.frmAlert==='yes'} onChange={v => set('frmAlert', v)} label="Yes" />
-                    <ChipOption value="no" selected={f.frmAlert==='no'} onChange={v => set('frmAlert', v)} label="No" />
-                  </div>
+                <FormField isInput label="Customer Account Opening Date" required>
+                  <DateInputWithIcon type="date" value={f.customerAccountOpeningDate} onChange={e => set('customerAccountOpeningDate', e.target.value)} />
+                </FormField>
+                <FormField isInput label="Customer Account Type" required output="-">
+                  <Input value={f.customerAccountType} onChange={e => set('customerAccountType', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="KYC Review - Debit / Credit Count with amount" required output="-">
+                  <Input value={f.kycReviewDebitCreditCount} onChange={e => set('kycReviewDebitCreditCount', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Customer Profile as per system / KYC" required output="-">
+                  <Input value={f.customerProfileKyc} onChange={e => set('customerProfileKyc', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
               </CardContent>
             </Card>
@@ -883,8 +942,8 @@ export function InvestigationFormPage() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button className="px-6 bg-[#22C55E] hover:bg-[#16A34A]" onClick={handleSubmit} disabled={isSubmitting}>
-                Submit For Review
+              <Button className="px-6 bg-[#22C55E] hover:bg-[#16A34A]" onClick={handleReviewReport} disabled={isSubmitting}>
+                Review Report
               </Button>
             )}
           </div>

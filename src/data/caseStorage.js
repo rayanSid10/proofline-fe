@@ -1,6 +1,13 @@
 import { mockCases } from '@/data/mockCases';
 
 const IMPORTED_CASES_STORAGE_KEY = 'proofline.importedCases';
+const ROUND_ROBIN_IO_INDEX_KEY = 'proofline.ioRoundRobinIndex';
+
+const INVESTIGATOR_POOL = [
+  { id: 2, name: 'Ali Raza' },
+  { id: 3, name: 'Fatima Zahra' },
+  { id: 4, name: 'Usman Tariq' },
+];
 
 function safeParse(json, fallback) {
   try {
@@ -12,6 +19,18 @@ function safeParse(json, fallback) {
 
 function isBrowser() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function getRoundRobinIndex() {
+  if (!isBrowser()) return 0;
+  const raw = window.localStorage.getItem(ROUND_ROBIN_IO_INDEX_KEY);
+  const idx = Number(raw);
+  return Number.isFinite(idx) && idx >= 0 ? idx : 0;
+}
+
+function setRoundRobinIndex(index) {
+  if (!isBrowser()) return;
+  window.localStorage.setItem(ROUND_ROBIN_IO_INDEX_KEY, String(index));
 }
 
 function normalizeCaseShape(item) {
@@ -41,6 +60,20 @@ export function getImportedCases() {
   return parsed.map(normalizeCaseShape);
 }
 
+export function getInvestigatorPool() {
+  return [...INVESTIGATOR_POOL];
+}
+
+export function assignNextInvestigator() {
+  const pool = getInvestigatorPool();
+  if (pool.length === 0) return null;
+
+  const index = getRoundRobinIndex() % pool.length;
+  const investigator = pool[index];
+  setRoundRobinIndex((index + 1) % pool.length);
+  return investigator;
+}
+
 export function saveImportedCases(cases) {
   if (!isBrowser()) return;
   const normalized = Array.isArray(cases) ? cases.map(normalizeCaseShape) : [];
@@ -62,8 +95,31 @@ export function addImportedCases(newCases) {
   };
 }
 
+export function upsertCase(updatedCase) {
+  if (!updatedCase) return;
+
+  const normalized = normalizeCaseShape(updatedCase);
+  const existing = getImportedCases();
+  const targetId = Number(normalized.id);
+
+  const idx = existing.findIndex((c) => Number(c.id) === targetId);
+  if (idx >= 0) {
+    const next = [...existing];
+    next[idx] = normalized;
+    saveImportedCases(next);
+    return;
+  }
+
+  saveImportedCases([...existing, normalized]);
+}
+
 export function getAllCases() {
-  return [...mockCases, ...getImportedCases()];
+  const mergedById = new Map(mockCases.map((c) => [Number(c.id), c]));
+  getImportedCases().forEach((c) => {
+    mergedById.set(Number(c.id), c);
+  });
+
+  return [...mergedById.values()].sort((a, b) => Number(a.id) - Number(b.id));
 }
 
 export function clearImportedCases() {

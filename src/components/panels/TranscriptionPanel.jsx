@@ -15,13 +15,11 @@ import { getRandomTranscription } from '@/data/mockTranscriptions';
 const FILE_TYPE_OPTIONS = [
   { value: 'cx_call', label: 'CX Call' },
   { value: 'io_call', label: 'IO Call' },
-  { value: 'frmu_call', label: 'FRMU Call' },
 ];
 
 const FILE_TYPE_COLORS = {
   cx_call: 'bg-blue-100 text-blue-700 border-blue-200',
   io_call: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  frmu_call: 'bg-purple-100 text-purple-700 border-purple-200',
 };
 
 // ─── Audio Card ────────────────────────────────────────────────────────────────

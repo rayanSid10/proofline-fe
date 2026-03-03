@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -10,10 +11,18 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { fraudTypes, channels } from '@/data/mockCases';
-import { getAllCases } from '@/data/caseStorage';
+import { getAllCases, getInvestigatorPool, upsertCase } from '@/data/caseStorage';
+import { toast } from 'sonner';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-PK', {
@@ -24,7 +33,7 @@ function formatCurrency(amount) {
   }).format(amount);
 }
 
-export function CaseDetailPage({ currentRole = 'investigator' }) {
+export function CaseDetailPage({ currentRole = 'investigator', currentUser = null }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -49,15 +58,43 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
   const fraudTypeLabel =
     fraudTypes.find((t) => t.value === caseData.fraud_type)?.label ||
     caseData.fraud_type;
+  const investigators = useMemo(() => getInvestigatorPool(), []);
+  const [currentAssignee, setCurrentAssignee] = useState(caseData.assigned_to || null);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState(
+    String(caseData.assigned_to?.id ?? investigators[0]?.id ?? '')
+  );
   const isSubmittedForSupervisor = ['pending_review', 'approved', 'rejected', 'closed'].includes(caseData.status);
+  const isAssignedInvestigator =
+    !isSupervisor &&
+    currentRole === 'investigator' &&
+    String(currentUser?.name || '').trim().toLowerCase() ===
+      String(currentAssignee?.name || '').trim().toLowerCase();
+  const canInvestigatorStart = isSupervisor || currentRole !== 'investigator' || isAssignedInvestigator;
   const investigationPath = isSupervisor
     ? (isSubmittedForSupervisor ? `/cases/${id}/supervisor-report` : `/cases/${id}`)
     : `/cases/${id}/investigation`;
   const primaryActionLabel = isSupervisor
     ? (isSubmittedForSupervisor ? 'View Investigation' : 'Awaiting Submission')
+    : !canInvestigatorStart
+      ? 'Assigned to Another IO'
     : caseData.status === 'open'
       ? 'Start Investigation'
       : 'View Investigation';
+
+  const handleReassignInvestigator = () => {
+    const nextAssignee = investigators.find((io) => String(io.id) === String(selectedAssigneeId));
+    if (!nextAssignee) return;
+
+    upsertCase({
+      ...caseData,
+      assigned_to: nextAssignee,
+    });
+    setCurrentAssignee(nextAssignee);
+
+    toast.success('Assignment updated', {
+      description: `Case reassigned to ${nextAssignee.name}`,
+    });
+  };
 
   const showSupervisorTransactionActions = false;
 
@@ -101,7 +138,7 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
                   size="sm"
                   className="h-8 bg-[#2592ff] px-3 text-xs text-white hover:bg-[#1887f6]"
                   onClick={() => navigate(investigationPath)}
-                  disabled={isSupervisor && !isSubmittedForSupervisor}
+                  disabled={(isSupervisor && !isSubmittedForSupervisor) || !canInvestigatorStart}
                 >
                   {isSupervisor ? (
                     <Eye className="mr-1.5 h-3.5 w-3.5" />
@@ -117,14 +154,45 @@ export function CaseDetailPage({ currentRole = 'investigator' }) {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-white hover:bg-white/15 hover:text-white"
-                    onClick={() => navigate(investigationPath)}
-                    title="Edit investigation"
+                    onClick={() => navigate(`/cases/${id}/edit`)}
+                    title="Edit case"
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
                 )}
               </div>
             </div>
+
+            {isSupervisor && (
+              <div className="mx-3 mt-3 rounded-xl border border-[#dae1e7] bg-[#f9fafb] p-3 sm:mx-4">
+                <p className="text-xs font-medium text-[#6b7280]">Investigation Officer Assignment</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Select value={selectedAssigneeId} onValueChange={setSelectedAssigneeId}>
+                    <SelectTrigger className="w-full sm:w-[260px] bg-white border-[#dae1e7]">
+                      <SelectValue placeholder="Select investigator" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {investigators.map((io) => (
+                        <SelectItem key={io.id} value={String(io.id)}>{io.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleReassignInvestigator}
+                    disabled={String(currentAssignee?.id ?? '') === String(selectedAssigneeId)}
+                    className="bg-[#2064b7] hover:bg-[#1a54a1]"
+                  >
+                    Update Assignment
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!isSupervisor && currentRole === 'investigator' && !isAssignedInvestigator && (
+              <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 sm:mx-4">
+                This case is assigned to {currentAssignee?.name || 'another investigator'}. You can view details, but only the assigned investigator can start or continue investigation.
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 px-4 py-5 sm:grid-cols-4 lg:grid-cols-7">
               <div>
