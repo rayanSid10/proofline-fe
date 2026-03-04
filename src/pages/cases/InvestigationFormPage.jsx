@@ -43,6 +43,12 @@ const steps = [
   { id: 6, title: 'Annx', Icon: AnnxIcon },
 ];
 
+const txnPatternOptions = [
+  'Transaction pattern seems Normal as compared with previous history',
+  'Transaction pattern seems suspicious as compared with pervious history',
+  'No previous history observed, current activity shows frequent use / explorer of multiple options',
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatCurrency = (amount) => new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
 
@@ -86,12 +92,20 @@ const ChipOption = ({ value, selected, onChange, label }) => (
     type="button"
     onClick={() => onChange(value)}
     className={cn(
-      "px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 border",
-      selected
-        ? "bg-[#2064B7] text-white border-[#2064B7] shadow-sm shadow-[#2064B7]/20"
-        : "bg-white text-[#6B7280] border-[#D1D5DB] hover:border-[#2064B7] hover:text-[#2064B7]"
+      'inline-flex items-center gap-2 py-1 text-[13px] font-medium transition-colors',
+      selected ? 'text-[#111827]' : 'text-[#6B7280] hover:text-[#2064B7]'
     )}
-  >{label}</button>
+  >
+    <span
+      className={cn(
+        'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
+        selected ? 'border-[#2064B7]' : 'border-[#D1D5DB]'
+      )}
+    >
+      <span className={cn('w-2.5 h-2.5 rounded-full transition-colors', selected ? 'bg-[#2064B7]' : 'bg-transparent')} />
+    </span>
+    <span>{label}</span>
+  </button>
 );
 
 const FormField = ({ label, required, children, output, large, isInput }) => (
@@ -116,8 +130,6 @@ const SectionDivider = ({ title }) => (
     <span className="text-[11px] font-bold text-[#2064B7] uppercase tracking-wider">{title}</span>
   </div>
 );
-
-const ReadOnlyValue = ({ value }) => <span className="text-[13px] text-[#374151]">{value || '—'}</span>;
 
 const DateInputWithIcon = ({ type = 'date', value, onChange, placeholder }) => {
   const inputRef = useRef(null);
@@ -253,7 +265,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
       initialDeviceId: 'Vivo-V4521', loginId: 'mhassan1212',
       loginIp: 'Same IP range', previousLimit: 'PKR 1,000,000',
       newLimit: 'PKR 1,000,000', txnPattern: 'Normal vs history',
-      productsAvailed: 'Auto Loan', otpDelivered: 'yes',
+      productsAvailed: 'yes', otpDelivered: 'yes',
     }));
   }, [caseData]);
 
@@ -285,7 +297,8 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
       tpinChange: value === 'yes' ? 'T-PIN change detected.' : value === 'no' ? 'No T-PIN change detected.' : '—',
       newDevice: value === 'yes' ? 'New device registration detected.' : value === 'no' ? 'No new device registration.' : '—',
       limitEnhanced: value === 'yes' ? 'Transaction limit was enhanced.' : value === 'no' ? 'No limit enhancement.' : '—',
-      deviceChange: value === 'yes' ? 'Change in device detail detected.' : value === 'no' ? 'No change in device detail.' : '—',
+      deviceChange: value === 'yes' ? 'Change in device detail detected.' : value === 'no' ? 'No change in device detail.' : value === 'na' ? '-' : '—',
+      productsAvailed: value === 'yes' ? 'Consumer product availed.' : value === 'no' ? 'No consumer product availed.' : '—',
       ipChange: value === 'yes' ? 'Change of IP / location detected.' : value === 'no' ? 'No change in IP / location.' : '—',
       frmAlert: value === 'yes' ? 'FRM system alert was generated.' : value === 'no' ? 'No FRM system alert was generated.' : '—',
       hblMobileAppActivityReview: value === 'yes' ? 'HBL Mobile Application channel activity reviewed.' : value === 'no' ? 'HBL Mobile Application channel activity not reviewed.' : '—',
@@ -641,7 +654,9 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.contactEstablished==='no'} onChange={v => set('contactEstablished', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Customer CLI Number" required><ReadOnlyValue value={f.customerCli} /></FormField>
+                <FormField isInput label="Customer CLI Number" required>
+                  <Input value={f.customerCli} onChange={e => set('customerCli', e.target.value)} placeholder="Enter customer CLI number" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField isInput label="Calling RC (Recording Channel)" required>
                   <Input value={f.rcChannel} onChange={e => set('rcChannel', e.target.value)} placeholder="e.g. 25148" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
@@ -675,7 +690,9 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Customer Credit Card Creation (Date & Time)" required>
                   <DateInputWithIcon type="datetime-local" value={f.ccCreationDatetime} onChange={e => set('ccCreationDatetime', e.target.value)} />
                 </FormField>
-                <FormField label="Source of IB/MB Channel Creation" required><ReadOnlyValue value={f.mbCreationSource} /></FormField>
+                <FormField isInput label="Source of IB/MB Channel Creation" required>
+                  <Input value={f.mbCreationSource} onChange={e => set('mbCreationSource', e.target.value)} placeholder="Enter source of IB/MB channel creation" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField label="HBL Mobile Application Channel Activity Review" required output={out('hblMobileAppActivityReview', f.hblMobileAppActivityReview)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.hblMobileAppActivityReview==='yes'} onChange={v => set('hblMobileAppActivityReview', v)} label="Yes" />
@@ -685,9 +702,15 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="User Since (Date / Time)" required output={f.userSinceDatetime ? `User since ${f.userSinceDatetime}` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.userSinceDatetime} onChange={e => set('userSinceDatetime', e.target.value)} />
                 </FormField>
-                <FormField label="Initial Device (at the time of registration)" required><ReadOnlyValue value={f.initialDeviceId} /></FormField>
-                <FormField label="Customer Login ID (User Name)" required><ReadOnlyValue value={f.loginId} /></FormField>
-                <FormField label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required><ReadOnlyValue value={f.loginIp} /></FormField>
+                <FormField isInput label="Initial Device (at the time of registration)" required>
+                  <Input value={f.initialDeviceId} onChange={e => set('initialDeviceId', e.target.value)} placeholder="Enter initial device" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Customer Login ID (User Name)" required>
+                  <Input value={f.loginId} onChange={e => set('loginId', e.target.value)} placeholder="Enter customer login ID" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required>
+                  <Input value={f.loginIp} onChange={e => set('loginIp', e.target.value)} placeholder="Enter IP / latitude / longitude" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField label="Date and Time of change of Login ID & Password (last 12 months from the date of disputed transactions)" required output={out('credentialChange', f.credentialChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.credentialChange==='yes'} onChange={v => set('credentialChange', v)} label="Yes" />
@@ -715,16 +738,45 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.limitEnhanced==='no'} onChange={v => set('limitEnhanced', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Customer Default / Previous Limit" required><ReadOnlyValue value={f.previousLimit} /></FormField>
-                <FormField label="Customer New Limit, if Change Observed" required><ReadOnlyValue value={f.newLimit} /></FormField>
+                <FormField isInput label="Customer Default / Previous Limit" required>
+                  <Input value={f.previousLimit} onChange={e => set('previousLimit', e.target.value)} placeholder="Enter previous limit" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Customer New Limit, if Change Observed" required>
+                  <Input value={f.newLimit} onChange={e => set('newLimit', e.target.value)} placeholder="Enter new limit" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
                 <FormField isInput label="Mode of Limit Enhancement" required>
                   <Input value={f.limitMode} onChange={e => set('limitMode', e.target.value)} placeholder="N/A" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField label="Customer Disputed Transaction Pattern" required><ReadOnlyValue value={f.txnPattern} /></FormField>
+                <FormField label="Customer Disputed Transaction Pattern" required output={f.txnPattern || '—'}>
+                  <div className="w-full py-2 space-y-2">
+                    {txnPatternOptions.map((option) => {
+                      const selected = f.txnPattern === option;
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => set('txnPattern', option)}
+                          className={cn('w-full inline-flex items-start gap-2 text-left py-1 text-[12px] leading-[1.4] transition-colors', selected ? 'text-[#111827]' : 'text-[#374151]')}
+                        >
+                          <span
+                            className={cn(
+                              'mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+                              selected ? 'border-[#2064B7]' : 'border-[#D1D5DB]'
+                            )}
+                          >
+                            <span className={cn('w-2.5 h-2.5 rounded-full', selected ? 'bg-[#2064B7]' : 'bg-transparent')} />
+                          </span>
+                          <span>{option}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </FormField>
                 <FormField label="Change in Device Detail" required output={out('deviceChange', f.deviceChange)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.deviceChange==='yes'} onChange={v => set('deviceChange', v)} label="Yes" />
                     <ChipOption value="no" selected={f.deviceChange==='no'} onChange={v => set('deviceChange', v)} label="No" />
+                    <ChipOption value="na" selected={f.deviceChange==='na'} onChange={v => set('deviceChange', v)} label="N/A" />
                   </div>
                 </FormField>
                 <FormField label="Change of IP / Location" required output={out('ipChange', f.ipChange)}>
@@ -733,7 +785,12 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.ipChange==='no'} onChange={v => set('ipChange', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField label="Consumer Product Availed (Auto, PIL, CC, ETC)" required><ReadOnlyValue value={f.productsAvailed} /></FormField>
+                <FormField label="Consumer Product Availed (Auto, PIL, CC, ETC)" required output={out('productsAvailed', f.productsAvailed)}>
+                  <div className="flex gap-3">
+                    <ChipOption value="yes" selected={f.productsAvailed==='yes'} onChange={v => set('productsAvailed', v)} label="Yes" />
+                    <ChipOption value="no" selected={f.productsAvailed==='no'} onChange={v => set('productsAvailed', v)} label="No" />
+                  </div>
+                </FormField>
                 <FormField label="SMS / OTP Sent to the Customer" required output={f.otpDelivered === 'yes' ? 'OTP was delivered to customer.' : f.otpDelivered === 'no' ? 'OTP was not delivered.' : '—'}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.otpDelivered==='yes'} onChange={v => set('otpDelivered', v)} label="Yes" />
@@ -844,8 +901,8 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Root Cause" required>
                   <Input value={f.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Enter root cause..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField label="Type of Fraud Identified by the System" required>
-                  <ReadOnlyValue value={f.fraudTypeSystem} />
+                <FormField isInput label="Type of Fraud Identified by the System" required>
+                  <Input value={f.fraudTypeSystem} onChange={e => set('fraudTypeSystem', e.target.value)} placeholder="Enter fraud type identified by system" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
               </CardContent>
             </Card>
