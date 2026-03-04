@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -27,15 +27,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  MOCK_FTDH_CASES,
-  BRANCH_STATE_LABELS,
-  MEMBER_BANK_STATE_LABELS,
   formatDateTime,
   formatAmount,
 } from '@/data/mockFTDH';
+import { ftdhAPI } from '@/api/ftdh';
 import { FTDHCaseUpdateModal } from '@/components/modals/FTDHCaseUpdateModal';
 import { FTDHReportModal } from '@/components/modals/FTDHReportModal';
 import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const PAGE_SIZE = 10;
 
@@ -68,6 +67,9 @@ const EmptyStateIcon = () => (
 
 export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
   const navigate = useNavigate();
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [selectedRows, setSelectedRows] = useState([]);
@@ -82,6 +84,26 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
   const [reportCaseData, setReportCaseData] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStep, setGeneratingStep] = useState(1);
+
+  useEffect(() => {
+    const loadCases = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await ftdhAPI.listInward();
+        const payload = Array.isArray(response.data)
+          ? response.data
+          : (response.data?.results || []);
+        setCases(payload);
+      } catch (err) {
+        setError(err?.response?.data?.error || err.message || 'Failed to load FTDH cases');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCases();
+  }, []);
 
   // Handle Generate Report: close update modal → show loading → open report
   const handleGenerateReport = useCallback((formData) => {
@@ -107,7 +129,7 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
 
   // Filter cases
   const filteredCases = useMemo(() => {
-    return MOCK_FTDH_CASES.filter((c) => {
+    return cases.filter((c) => {
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         return (
@@ -118,7 +140,7 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
       }
       return true;
     });
-  }, [searchQuery]);
+  }, [cases, searchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCases.length / PAGE_SIZE));
   const pagedCases = filteredCases.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -206,13 +228,22 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
 
       {/* Table Container — fills remaining space */}
       <div className="flex-1 flex flex-col min-h-0 rounded-lg border border-gray-200 bg-white overflow-hidden">
+        {error && (
+          <div className="px-4 pt-4">
+            <Alert variant="destructive">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+
         {/* Table toolbar — checkbox, trash, pagination */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
             <Checkbox
               checked={pagedCases.length > 0 && selectedRows.length === pagedCases.length}
               onCheckedChange={handleToggleAll}
-              disabled={pagedCases.length === 0}
+              disabled={pagedCases.length === 0 || loading}
             />
             <button
               className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors"
@@ -255,7 +286,15 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagedCases.length === 0 ? (
+              {loading ? (
+                <TableRow className="hover:bg-white">
+                  <TableCell colSpan={7} className="h-[220px]">
+                    <div className="flex items-center justify-center text-muted-foreground">
+                      Loading FTDH cases...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : pagedCases.length === 0 ? (
                 <TableRow className="hover:bg-white">
                   <TableCell colSpan={7} className="h-[400px]">
                     <div className="flex flex-col items-center justify-center text-center py-16">

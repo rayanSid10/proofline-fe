@@ -1,12 +1,13 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  MOCK_FTDH_CASES,
   formatDateTime,
   formatAmount,
 } from '@/data/mockFTDH';
+import { ftdhAPI } from '@/api/ftdh';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { FTDHCaseUpdateModal } from '@/components/modals/FTDHCaseUpdateModal';
 import { FTDHReportModal } from '@/components/modals/FTDHReportModal';
 import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar';
@@ -301,10 +302,9 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // Find the case data
-  const caseData = useMemo(() => {
-    return MOCK_FTDH_CASES.find(c => c.id === id) || MOCK_FTDH_CASES[0];
-  }, [id]);
+  const [caseData, setCaseData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // State
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
@@ -316,6 +316,29 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
   const [responseAccepted, setResponseAccepted] = useState(false);
   const [expandedBanks, setExpandedBanks] = useState({ UBL: true });
 
+  useEffect(() => {
+    const loadCase = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await ftdhAPI.getInward(id);
+        setCaseData(response.data);
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          setError('FTDH case not found');
+        } else {
+          setError(err?.response?.data?.error || err.message || 'Failed to load FTDH case');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (id) {
+      loadCase();
+    }
+  }, [id]);
+
   // Get branch communication state
   const branchState = caseData?.branchCommunication?.branchCommunicationState || 'not_started';
   const bc = caseData?.branchCommunication || {};
@@ -324,6 +347,9 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
 
   // Determine which view to show based on state
   const getViewType = () => {
+    if (branchState === 'not_started') {
+      return 'not_started';
+    }
     if (branchState === 'stance_received' || bc.customerStanceInitial === 'Yes') {
       return 'branch_reviewed';
     }
@@ -454,6 +480,34 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
   const timelineSteps = getTimelineSteps();
   const memberBankSteps = getMemberBankSteps();
 
+  if (loading) {
+    return (
+      <div className="h-[calc(100vh-100px)] flex items-center justify-center text-muted-foreground font-['Inter',sans-serif]">
+        Loading FTDH case...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-[calc(100vh-100px)] flex flex-col gap-4 justify-center max-w-2xl mx-auto font-['Inter',sans-serif]">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <div>
+          <Button onClick={() => navigate('/ftdh')} variant="outline">
+            Back to Inward FTDH
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!caseData) {
+    return null;
+  }
+
   return (
     <div className="h-[calc(100vh-100px)] flex flex-col font-['Inter',sans-serif]">
       {/* Main Card */}
@@ -475,7 +529,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Dispute ID</p>
                 <p className="text-[19px] text-white font-medium mt-1">
-                  {init.disputeId?.replace('FTDH-INW-', 'IBFT-') || 'IBFT-SBC-25...'}
+                  {init.disputeId?.replace('FTDH-INW-', 'IBFT-') || '—'}
                 </p>
               </div>
 
@@ -483,10 +537,10 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Sender</p>
                 <p className="text-[19px] text-white font-medium mt-1">
-                  {init.sendingBank?.split(' ')[0] || 'SBC'}
+                  {init.sendingBank?.split(' ')[0] || '—'}
                 </p>
                 <p className="text-[12px] text-white font-medium">
-                  {init.senderAccount || '328152075045435'}
+                  {init.senderAccount || '—'}
                 </p>
               </div>
 
@@ -494,10 +548,10 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Beneficiary</p>
                 <p className="text-[19px] text-white font-medium mt-1">
-                  {init.receivingBank?.split(' ')[0] || 'HBL'}
+                  {init.receivingBank?.split(' ')[0] || '—'}
                 </p>
                 <p className="text-[12px] text-white font-medium">
-                  {init.beneficiaryAccount || '001001001001001'}
+                  {init.beneficiaryAccount || '—'}
                 </p>
               </div>
 
@@ -505,7 +559,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Trx Date & Time</p>
                 <p className="text-[17px] text-white font-medium mt-1">
-                  {init.transactionDateTime ? formatDateTime(init.transactionDateTime) : '02/06/2025 10:49:18'}
+                  {init.transactionDateTime ? formatDateTime(init.transactionDateTime) : '—'}
                 </p>
               </div>
 
@@ -513,7 +567,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Stan</p>
                 <p className="text-[19px] text-white font-medium mt-1">
-                  {init.stan || '345675'}
+                  {init.stan || '—'}
                 </p>
               </div>
 
@@ -521,7 +575,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               <div>
                 <p className="text-[14px] text-white/50 font-medium">Trx Amount</p>
                 <p className="text-[17px] text-white font-semibold mt-1">
-                  {init.amount ? formatAmount(init.amount) : 'PKR 50,000'}
+                  {init.amount ? formatAmount(init.amount) : '—'}
                 </p>
               </div>
             </div>
@@ -548,6 +602,25 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
           {/* Left Column - Communication with Branch */}
           <div className="flex-1 p-6 overflow-y-auto">
             <h2 className="text-[20px] font-semibold text-[#4C4C4C] mb-6">Communication with Branch</h2>
+
+            {viewType === 'not_started' && (
+              <div className="space-y-4">
+                <TimelineStep
+                  title="Branch Intimation Pending"
+                  datetime={init.ftdhReceivingDateTime ? formatDateTime(init.ftdhReceivingDateTime) : '—'}
+                  isActive={false}
+                  isLast={true}
+                  showLine={false}
+                />
+
+                <div className="flex flex-col items-center justify-center py-16">
+                  <PaperPlaneIcon />
+                  <p className="text-[19px] text-[#4C4C4C] text-center mt-4 font-medium font-['Jost',sans-serif]">
+                    Initial intimation not sent yet
+                  </p>
+                </div>
+              </div>
+            )}
 
             {viewType === 'initial_intimation' && (
               <div className="space-y-4">
