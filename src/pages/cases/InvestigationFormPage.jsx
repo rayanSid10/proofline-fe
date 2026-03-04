@@ -51,6 +51,18 @@ const txnPatternOptions = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatCurrency = (amount) => new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
+const formatDateText = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return format(date, 'dd-MMM-yyyy');
+};
+const formatDateTimeText = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return format(date, 'dd-MMM-yyyy hh:mm a');
+};
 
 // ─── Reusable Sub-components ─────────────────────────────────────────────────
 function StepIndicator({ currentStep, onStepClick }) {
@@ -561,11 +573,11 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Complaint No" output={`Case received from ${f.caseReceivingChannel} on ${f.caseReceivingDate}, Complaint No. ${f.complaintNo}`}>
                   <Input value={f.complaintNo} onChange={e => set('complaintNo', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Case Reference No">
-                  <Input value={f.caseReferenceNo} onChange={e => set('caseReferenceNo', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
-                </FormField>
-                <FormField isInput label="Case Receiving Channel">
+                <FormField isInput label="Case Receiving Channel" output={f.caseReceivingChannel ? `The case receiving channel fetched from DB MIS is ${f.caseReceivingChannel}.` : '—'}>
                   <Input value={f.caseReceivingChannel} onChange={e => set('caseReceivingChannel', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
+                </FormField>
+                <FormField isInput label="Case Reference No" output={f.caseReferenceNo ? `Case Reference No ${f.caseReferenceNo} is the unique key used for investigation tracking.` : '—'}>
+                  <Input value={f.caseReferenceNo} onChange={e => set('caseReferenceNo', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
                 <FormField isInput label="Dispute Amount At Risk" required output={`The customer raised dispute against total amount ${f.disputeAmountAtRisk}`}>
                   <Input value={f.disputeAmountAtRisk} onChange={e => set('disputeAmountAtRisk', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
@@ -573,7 +585,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Expected Recovery From ON-US Beneficiary" output="No recovery expected from On-us customer accounts">
                   <Input value={f.expectedRecovery} onChange={e => set('expectedRecovery', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Expected Recovery from Member/Bank Beneficiary" output={f.expectedRecoveryMemberBank || '—'}>
+                <FormField isInput label="Expected Recovery from Member/Bank Beneficiary" output={f.expectedRecoveryMemberBank ? `Expected recovery from member / bank beneficiary is ${f.expectedRecoveryMemberBank}.` : '—'}>
                   <Input value={f.expectedRecoveryMemberBank} onChange={e => set('expectedRecoveryMemberBank', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
                 <FormField isInput label="Disputed Transaction Details" large output={
@@ -601,23 +613,23 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.fmsAlertGenerated==='no'} onChange={v => set('fmsAlertGenerated', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField isInput label="Customer Name" output={f.customerNameField || '—'}>
+                <FormField isInput label="Customer Name" output={f.customerNameField ? `Customer name recorded as ${f.customerNameField}.` : '—'}>
                   <Input value={f.customerNameField} onChange={e => set('customerNameField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Customer Account No" output={f.customerAccountNoField || '—'}>
+                <FormField isInput label="Customer Account No" output={f.customerAccountNoField ? `Customer account ${f.customerAccountNoField} has been identified and linked to this case.` : '—'}>
                   <Input value={f.customerAccountNoField} onChange={e => set('customerAccountNoField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Branch Code" output={f.branchCodeField || '—'}>
+                <FormField isInput label="Branch Code" output={f.branchCodeField ? `The customer account is maintained at Branch Code ${f.branchCodeField}.` : '—'}>
                   <Input value={f.branchCodeField} onChange={e => set('branchCodeField', e.target.value)} className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Date(s) Incident Occurred" output={`Disputed transactions debited on ${f.incidentDate}${f.incidentDateTo ? ` to ${f.incidentDateTo}` : ''}`}>
+                <FormField isInput label="Date(s) Incident Occurred" output={`Disputed transactions debited on ${formatDateText(f.incidentDate)}${f.incidentDateTo ? ` to ${formatDateText(f.incidentDateTo)}` : ''}`}>
                   <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center w-full h-full px-2 py-1.5">
                     <DateInputWithIcon type="date" value={f.incidentDate} onChange={e => set('incidentDate', e.target.value)} placeholder="Date 1" />
                     <span className="text-[13px] font-medium text-[#6B7280]">to</span>
                     <DateInputWithIcon type="date" value={f.incidentDateTo} onChange={e => set('incidentDateTo', e.target.value)} placeholder="Date 2" />
                   </div>
                 </FormField>
-                <FormField isInput label="Case Receiving Date" output={`Customer called bank helpline on ${f.caseReceivingDate}`}>
+                <FormField isInput label="Case Receiving Date" output={f.caseReceivingDate ? `The case was received on ${formatDateText(f.caseReceivingDate)}.` : '—'}>
                   <DateInputWithIcon type="date" value={f.caseReceivingDate} onChange={e => set('caseReceivingDate', e.target.value)} placeholder="dd/mm/yyyy" />
                 </FormField>
               </CardContent>
@@ -636,7 +648,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
 
                 {/* Customer Contact Section */}
                 <SectionDivider title="Customer Contact" />
-                <FormField isInput label="Customer Call at Contact Centre (Date & Time)" required>
+                <FormField isInput label="Customer Call at Contact Centre (Date & Time)" required output={f.cxCallDatetime ? `As per system, customer called helpline on ${formatDateTimeText(f.cxCallDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.cxCallDatetime} onChange={e => set('cxCallDatetime', e.target.value)} placeholder="Auto-picked from CX Excel" />
                 </FormField>
                 <FormField isInput label="Customer Stance as per Initial Call" required large output={f.initialCustomerStance || 'Customer disowned the transactions, claimed fraud.'}>
@@ -654,13 +666,13 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.contactEstablished==='no'} onChange={v => set('contactEstablished', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField isInput label="Customer CLI Number" required>
+                <FormField isInput label="Customer CLI Number" required output={f.customerCli ? `Customer was contacted on CLI ${f.customerCli}.` : '—'}>
                   <Input value={f.customerCli} onChange={e => set('customerCli', e.target.value)} placeholder="Enter customer CLI number" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Calling RC (Recording Channel)" required>
+                <FormField isInput label="Calling RC (Recording Channel)" required output={f.rcChannel ? `Call recording reference ${f.rcChannel} captured for audit trail.` : '—'}>
                   <Input value={f.rcChannel} onChange={e => set('rcChannel', e.target.value)} placeholder="e.g. 25148" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Customer Communication Date / Time (IO Call)" required output={f.ioCallDatetime ? `IO call made on ${f.ioCallDatetime}` : '—'}>
+                <FormField isInput label="Customer Communication Date / Time (IO Call)" required output={f.ioCallDatetime ? `IO call made on ${formatDateTimeText(f.ioCallDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.ioCallDatetime} onChange={e => set('ioCallDatetime', e.target.value)} />
                 </FormField>
                 <FormField label="Communication Letter Sent" required output={out('letterSent', f.letterSent)}>
@@ -681,16 +693,16 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
 
                 {/* Channel & Device Analysis */}
                 <SectionDivider title="Channel & Device Analysis" />
-                <FormField isInput label="Customer IB/MB Channel Creation (Date & Time)" required>
+                <FormField isInput label="Customer IB/MB Channel Creation (Date & Time)" required output={f.mbCreationDatetime ? `As per system, IB/MB channel was created on ${formatDateTimeText(f.mbCreationDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.mbCreationDatetime} onChange={e => set('mbCreationDatetime', e.target.value)} />
                 </FormField>
-                <FormField isInput label="Customer Debit Card Creation (Date & Time)" required>
+                <FormField isInput label="Customer Debit Card Creation (Date & Time)" required output={f.dcCreationDatetime ? `Debit Card creation observed on ${formatDateTimeText(f.dcCreationDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.dcCreationDatetime} onChange={e => set('dcCreationDatetime', e.target.value)} />
                 </FormField>
-                <FormField isInput label="Customer Credit Card Creation (Date & Time)" required>
+                <FormField isInput label="Customer Credit Card Creation (Date & Time)" required output={f.ccCreationDatetime ? `Credit Card creation observed on ${formatDateTimeText(f.ccCreationDatetime)}.` : 'No Credit Card creation record provided.'}>
                   <DateInputWithIcon type="datetime-local" value={f.ccCreationDatetime} onChange={e => set('ccCreationDatetime', e.target.value)} />
                 </FormField>
-                <FormField isInput label="Source of IB/MB Channel Creation" required>
+                <FormField isInput label="Source of IB/MB Channel Creation" required output={f.mbCreationSource ? `IB/MB channel creation source is ${f.mbCreationSource}.` : '—'}>
                   <Input value={f.mbCreationSource} onChange={e => set('mbCreationSource', e.target.value)} placeholder="Enter source of IB/MB channel creation" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
                 <FormField label="HBL Mobile Application Channel Activity Review" required output={out('hblMobileAppActivityReview', f.hblMobileAppActivityReview)}>
@@ -699,16 +711,16 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.hblMobileAppActivityReview==='no'} onChange={v => set('hblMobileAppActivityReview', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField isInput label="User Since (Date / Time)" required output={f.userSinceDatetime ? `User since ${f.userSinceDatetime}` : '—'}>
+                <FormField isInput label="User Since (Date / Time)" required output={f.userSinceDatetime ? `Customer is user since ${formatDateTimeText(f.userSinceDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.userSinceDatetime} onChange={e => set('userSinceDatetime', e.target.value)} />
                 </FormField>
-                <FormField isInput label="Initial Device (at the time of registration)" required>
+                <FormField isInput label="Initial Device (at the time of registration)" required output={f.initialDeviceId ? `Initial registered device is ${f.initialDeviceId}.` : '—'}>
                   <Input value={f.initialDeviceId} onChange={e => set('initialDeviceId', e.target.value)} placeholder="Enter initial device" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Customer Login ID (User Name)" required>
+                <FormField isInput label="Customer Login ID (User Name)" required output={f.loginId ? `Customer login ID ${f.loginId} remained under review.` : '—'}>
                   <Input value={f.loginId} onChange={e => set('loginId', e.target.value)} placeholder="Enter customer login ID" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required>
+                <FormField isInput label="User IP Address / LAT / LOG (IP and Lat / Log maybe combined or separate)" required output={f.loginIp ? `Reviewed user IP/LAT/LONG detail: ${f.loginIp}.` : '—'}>
                   <Input value={f.loginIp} onChange={e => set('loginIp', e.target.value)} placeholder="Enter IP / latitude / longitude" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
                 <FormField label="Date and Time of change of Login ID & Password (last 12 months from the date of disputed transactions)" required output={out('credentialChange', f.credentialChange)}>
@@ -738,13 +750,13 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.limitEnhanced==='no'} onChange={v => set('limitEnhanced', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField isInput label="Customer Default / Previous Limit" required>
+                <FormField isInput label="Customer Default / Previous Limit" required output={f.previousLimit ? `Customer default/previous limit was ${f.previousLimit}.` : '—'}>
                   <Input value={f.previousLimit} onChange={e => set('previousLimit', e.target.value)} placeholder="Enter previous limit" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Customer New Limit, if Change Observed" required>
+                <FormField isInput label="Customer New Limit, if Change Observed" required output={f.newLimit ? `Customer new limit observed as ${f.newLimit}.` : '—'}>
                   <Input value={f.newLimit} onChange={e => set('newLimit', e.target.value)} placeholder="Enter new limit" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Mode of Limit Enhancement" required>
+                <FormField isInput label="Mode of Limit Enhancement" required output={f.limitMode ? `Limit enhancement mode: ${f.limitMode}.` : 'Not applicable as no enhancement mode recorded.'}>
                   <Input value={f.limitMode} onChange={e => set('limitMode', e.target.value)} placeholder="N/A" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
                 <FormField label="Customer Disputed Transaction Pattern" required output={f.txnPattern || '—'}>
@@ -822,7 +834,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="no" selected={f.fraudsterNumberReported==='no'} onChange={v => set('fraudsterNumberReported', v)} label="No" />
                   </div>
                 </FormField>
-                <FormField isInput label="FTDH Status / Recovery" large output={f.ftdhStatus ? 'Funds not available in beneficiary account.' : '—'}>
+                <FormField isInput label="FTDH Status / Recovery" large output={f.ftdhStatus ? `As per FTDH status, ${f.ftdhStatus}.` : '—'}>
                   <Textarea value={f.ftdhStatus} onChange={e => set('ftdhStatus', e.target.value)} placeholder="As per FTDH , we observed the status as SF / NSF" className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
                 </FormField>
                 <FormField label="Fund Layered A/C" required output={out('fundLayeredFlag', f.fundLayeredFlag)}>
@@ -855,16 +867,16 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                     <ChipOption value="not_accepted" selected={f.frmuReviewFlag==='not_accepted'} onChange={v => set('frmuReviewFlag', v)} label="Not Accepted" />
                   </div>
                 </FormField>
-                <FormField isInput label="Customer Account Opening Date" required>
+                <FormField isInput label="Customer Account Opening Date" required output={f.customerAccountOpeningDate ? `Customer account opening date is ${formatDateText(f.customerAccountOpeningDate)}.` : '—'}>
                   <DateInputWithIcon type="date" value={f.customerAccountOpeningDate} onChange={e => set('customerAccountOpeningDate', e.target.value)} />
                 </FormField>
-                <FormField isInput label="Customer Account Type" required output="-">
+                <FormField isInput label="Customer Account Type" required output={f.customerAccountType || '-'}>
                   <Input value={f.customerAccountType} onChange={e => set('customerAccountType', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="KYC Review - Debit / Credit Count with amount" required output="-">
+                <FormField isInput label="KYC Review - Debit / Credit Count with amount" required output={f.kycReviewDebitCreditCount || '-'}>
                   <Input value={f.kycReviewDebitCreditCount} onChange={e => set('kycReviewDebitCreditCount', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Customer Profile as per system / KYC" required output="-">
+                <FormField isInput label="Customer Profile as per system / KYC" required output={f.customerProfileKyc || '-'}>
                   <Input value={f.customerProfileKyc} onChange={e => set('customerProfileKyc', e.target.value)} className="w-full h-full border-0 bg-[#EFF7FF] focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
               </CardContent>
@@ -898,10 +910,10 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Control Breaches Observed" large output={f.controlBreachesObserved || 'No Control Breach is observed.'}>
                   <Textarea value={f.controlBreachesObserved} onChange={e => set('controlBreachesObserved', e.target.value)} placeholder="Describe observed breaches..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
                 </FormField>
-                <FormField isInput label="Root Cause" required>
+                <FormField isInput label="Root Cause" required output={f.rootCause ? `Root cause identified as: ${f.rootCause}.` : '—'}>
                   <Input value={f.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="Enter root cause..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Type of Fraud Identified by the System" required>
+                <FormField isInput label="Type of Fraud Identified by the System" required output={f.fraudTypeSystem ? `System fraud classification is ${f.fraudTypeSystem}.` : '—'}>
                   <Input value={f.fraudTypeSystem} onChange={e => set('fraudTypeSystem', e.target.value)} placeholder="Enter fraud type identified by system" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
               </CardContent>
@@ -923,13 +935,13 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Conclusion" required large output={f.finalConclusionType ? "No error/gap observed at bank's end. Liability remains at customer's part." : '—'}>
                   <Textarea value={f.finalConclusionType} onChange={e => set('finalConclusionType', e.target.value)} placeholder="Enter conclusion..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px] resize-none" />
                 </FormField>
-                <FormField isInput label="Recommendation" required>
+                <FormField isInput label="Recommendation" required output={f.recommendation ? `Based on findings, recommendation is: ${f.recommendation}.` : '—'}>
                   <Input value={f.recommendation} onChange={e => set('recommendation', e.target.value)} placeholder="Enter recommendation..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Action Owner" required>
+                <FormField isInput label="Action Owner" required output={f.actionOwner ? `Matter is referred to ${f.actionOwner}.` : '—'}>
                   <Input value={f.actionOwner} onChange={e => set('actionOwner', e.target.value)} placeholder="Enter action owner..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField isInput label="Status of Action Recommended" required>
+                <FormField isInput label="Status of Action Recommended" required output={f.actionStatus ? `Status of recommended action: ${f.actionStatus}.` : '—'}>
                   <Input value={f.actionStatus} onChange={e => set('actionStatus', e.target.value)} placeholder="Enter status..." className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
               </CardContent>
