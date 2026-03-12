@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -27,10 +27,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  MOCK_FTDH_CASES,
   formatDateTime,
   formatAmount,
 } from '@/data/mockFTDH';
+import { ftdhAPI } from '@/api/ftdh';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { FTDHCaseUpdateModal } from '@/components/modals/FTDHCaseUpdateModal';
 import { FTDHReportModal } from '@/components/modals/FTDHReportModal';
 import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar';
@@ -65,6 +66,9 @@ const EmptyStateIcon = () => (
 
 export function FTDHBranchPage({ currentRole = 'branch_user' }) {
   const navigate = useNavigate();
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [selectedRows, setSelectedRows] = useState([]);
@@ -79,6 +83,23 @@ export function FTDHBranchPage({ currentRole = 'branch_user' }) {
   const [reportCaseData, setReportCaseData] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStep, setGeneratingStep] = useState(1);
+
+  useEffect(() => {
+    const loadCases = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await ftdhAPI.listBranchAssigned();
+        setCases(Array.isArray(response.data) ? response.data : (response.data?.results || []));
+      } catch (err) {
+        setError(err?.response?.data?.error || err.message || 'Failed to load branch assigned cases');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCases();
+  }, []);
 
   // Handle Generate Report (reusing logic from FTDHInwardPage)
   const handleGenerateReport = useCallback((formData) => {
@@ -108,8 +129,8 @@ export function FTDHBranchPage({ currentRole = 'branch_user' }) {
   // filteredCases empty until a search happens, OR filter all if needed. 
   // Let's assume for this mock that if there's no search query, we show empty state matching the Figma.
   const filteredCases = useMemo(() => {
-    // Branch user should only see cases where initialIntimationSent is true
-    const branchCases = MOCK_FTDH_CASES.filter(c => c.branchCommunication?.initialIntimationSent);
+    // Backend endpoint already returns branch-assigned/intimated pending cases for portal.
+    const branchCases = cases;
     
     if (!searchQuery.trim()) {
       return branchCases; // Show all available branch cases (for now, to match design/requirement we'll just show them, but we could return [] if we strictly wanted empty state before search)
@@ -123,7 +144,7 @@ export function FTDHBranchPage({ currentRole = 'branch_user' }) {
         c.initialData.beneficiaryAccount?.toLowerCase().includes(query)
       );
     });
-  }, [searchQuery]);
+  }, [cases, searchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCases.length / PAGE_SIZE));
   const pagedCases = filteredCases.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -174,7 +195,19 @@ export function FTDHBranchPage({ currentRole = 'branch_user' }) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-0 bg-[#EEF6FF] rounded-lg overflow-hidden border border-[#DAE1E7]">
-        {filteredCases.length === 0 ? (
+        {error && (
+          <div className="px-4 pt-4 bg-white">
+            <Alert variant="destructive">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center bg-white text-muted-foreground">
+            Loading assigned branch cases...
+          </div>
+        ) : filteredCases.length === 0 ? (
           // Empty State - Left Aligned Design
           <div className="flex flex-1 flex-col items-start justify-center pl-16 py-16 bg-white overflow-hidden">
             <div className="text-gray-400 mb-6 scale-90 origin-left">

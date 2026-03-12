@@ -85,6 +85,37 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStep, setGeneratingStep] = useState(1);
 
+  // Google Sheet Import
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null); // { imported, skipped, errors, cbs_lookups } | null
+
+  const handleImport = useCallback(async () => {
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const response = await ftdhAPI.importFromSheet();
+      setImportResult(response.data);
+      // Reload case list if any were imported
+      if (response.data.imported > 0) {
+        const listResponse = await ftdhAPI.listInward();
+        const payload = Array.isArray(listResponse.data)
+          ? listResponse.data
+          : (listResponse.data?.results || []);
+        setCases(payload);
+      }
+    } catch (err) {
+      const errData = err?.response?.data;
+      setImportResult({
+        success: false,
+        imported: 0,
+        errors: [errData?.error || err.message || 'Import failed'],
+        hint: errData?.hint,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }, []);
+
   useEffect(() => {
     const loadCases = async () => {
       try {
@@ -190,13 +221,47 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
         <Button
           variant="outline"
           className="h-9 px-5 text-sm border-gray-300 text-gray-700 hover:bg-gray-50 gap-2"
-          disabled
-          title="Import functionality coming soon"
+          onClick={handleImport}
+          disabled={importing}
+          title="Import new cases from 1LINK Google Sheet"
         >
           <Upload className="h-4 w-4" />
-          Import
+          {importing ? 'Importing…' : 'Import from 1LINK'}
         </Button>
       </div>
+
+      {/* Import Result Banner */}
+      {importResult && (
+        <div className={`mb-4 shrink-0 rounded-lg border px-4 py-3 text-sm flex items-start justify-between gap-4 ${
+          importResult.success === false || (importResult.errors?.length > 0 && importResult.imported === 0)
+            ? 'bg-red-50 border-red-200 text-red-700'
+            : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          <div className="flex-1">
+            {importResult.success === false ? (
+              <p className="font-medium">{importResult.errors?.[0] || 'Import failed'}</p>
+            ) : (
+              <p className="font-medium">
+                Import complete — {importResult.imported} case{importResult.imported !== 1 ? 's' : ''} imported
+                {importResult.cbs_lookups != null ? `, ${importResult.cbs_lookups} CBS lookups` : ''}
+                {importResult.errors?.length > 0 ? `, ${importResult.errors.length} error(s)` : ''}
+              </p>
+            )}
+            {importResult.hint && (
+              <p className="mt-1 text-xs opacity-80">{importResult.hint}</p>
+            )}
+            {importResult.errors?.length > 0 && importResult.imported > 0 && (
+              <ul className="mt-1 text-xs space-y-0.5 opacity-80">
+                {importResult.errors.map((e, i) => <li key={i}>• {e}</li>)}
+              </ul>
+            )}
+          </div>
+          <button
+            onClick={() => setImportResult(null)}
+            className="text-current opacity-50 hover:opacity-100 text-base leading-none"
+          >✕</button>
+        </div>
+      )}
 
       {/* Search + Filters Row */}
       <div className="flex items-center gap-3 mb-4 shrink-0">
