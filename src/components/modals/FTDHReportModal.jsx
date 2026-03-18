@@ -1,6 +1,21 @@
-import { X, FileText } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { formatAmount } from '@/data/mockFTDH';
+import { useRef, useCallback, useState } from 'react';
+import { X, FileText, ExternalLink, Download, Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
+import { toPng } from 'html-to-image';
+import jsPDF from 'jspdf';
+
+/**
+ * Format a number with commas (no currency symbol).
+ * e.g. 50000 → "50,000"
+ */
+function formatAmountPlain(amount) {
+  if (!amount && amount !== 0) return '';
+  return new Intl.NumberFormat('en-PK', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -152,29 +167,69 @@ function formatNow() {
   return now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function generateCaseBackground(init) {
+function generateCaseBackground(init, act, bc) {
   const items = [];
   items.push(
-    `The case was received from FTDH (likely referring to the Fraud Transaction Data Hub or a similar internal/interbank reporting system) regarding an inward transaction.`
+    `The case was received from FTDH (Fraud Transaction Data Hub) regarding an inward transaction. Upon receipt, the case was taken up for investigation.`
   );
-  if (init.channel) {
-    items.push(`The transaction was conducted via ${init.channel} channel.`);
+  if (act.actionTaken === 'Acknowledge') {
+    items.push(`The case was acknowledged${act.acknowledgeDate ? ` on ${formatDate(act.acknowledgeDate)}` : ''} and investigation was initiated.`);
+  } else if (act.actionTaken === 'Invalid') {
+    items.push(`The case was marked as Invalid${act.invalidReason ? `: ${act.invalidReason}` : ''}.`);
   }
-  if (init.amount) {
-    items.push(`The disputed amount is PKR ${formatAmount(init.amount)}.`);
+  if (bc.initialIntimationSent) {
+    items.push(`Initial intimation was sent to the branch${bc.initialIntimationDate ? ` on ${formatDate(bc.initialIntimationDate)}` : ''}.`);
   }
   return items;
 }
 
-function generateCaseFindings(init, act) {
+function generateCaseFindings(init, act, bc, mb) {
   const items = [];
   items.push(
-    `The customer was credited against the inward activity, which was reported as fraudulent by your bank (this suggests the bank of the sender or a related entity flagged the transaction).`
+    `The customer was credited against the inward activity, which was reported as fraudulent by the sender bank${init.sendingBank ? ` (${init.sendingBank.split('(')[0]?.trim()})` : ''}.`
   );
   if (act.fundsStatus === 'SF') {
-    items.push(`The funds are held in the beneficiary customer account.`);
+    items.push(`Sufficient funds are available in the beneficiary customer account.`);
   } else if (act.fundsStatus === 'NSF') {
-    items.push(`The funds are not fully available in the beneficiary customer account.`);
+    items.push(`The funds are not fully available in the beneficiary customer account (Non-Sufficient Funds).`);
+  }
+  if (act.fundsOnHold != null && act.fundsOnHold > 0) {
+    items.push(`An amount of PKR ${formatAmountPlain(act.fundsOnHold)} is currently on hold.`);
+  }
+  if (act.lienMarked === true) {
+    items.push(`Lien has been marked on the disputed amount${act.lienMarkDate ? ` on ${formatDate(act.lienMarkDate)}` : ''}.`);
+  } else if (act.lienMarked === false) {
+    items.push(`No lien has been marked on the account.`);
+  }
+  if (act.channelBlockingDate) {
+    items.push(`Channels were blocked on ${formatDate(act.channelBlockingDate)}.`);
+  }
+  if (act.fundsLayering === true) {
+    items.push(`Funds layering has been detected${act.fundsLayeringDate ? ` on ${formatDate(act.fundsLayeringDate)}` : ''}${act.fundsLayeringId ? ` (Layering ID: ${act.fundsLayeringId})` : ''}.`);
+  } else if (act.fundsLayering === false) {
+    items.push(`No funds layering was detected.`);
+  }
+  // Branch communication findings
+  if (bc.branchResponseDecision === 'ACCEPT') {
+    items.push(`Branch response was reviewed and accepted${bc.branchResponseReviewedAt ? ` on ${formatDate(bc.branchResponseReviewedAt)}` : ''}.`);
+  } else if (bc.branchResponseDecision === 'REJECT') {
+    items.push(`Branch response was reviewed and rejected${bc.branchResponseDecisionRemarks ? ` — ${bc.branchResponseDecisionRemarks}` : ''}.`);
+  }
+  // Branch response details (customer stance)
+  const branchResp = bc.branchResponse || {};
+  if (branchResp.customerAdmitsTransaction === true) {
+    items.push(`The customer admits the transaction.`);
+  } else if (branchResp.customerAdmitsTransaction === false) {
+    items.push(`The customer denies the transaction.`);
+  }
+  if (branchResp.customerStatement) {
+    items.push(`Customer statement: "${branchResp.customerStatement}".`);
+  }
+  // Member bank feedback
+  if (mb.resolved && mb.resolvedMessage) {
+    items.push(`Member bank communication outcome: ${mb.resolvedMessage}`);
+  } else if (mb.acceptedBank) {
+    items.push(`Member bank communication: Accepted by ${mb.acceptedBank}.`);
   }
   items.push(
     `The unit requests that complete findings related to the reported FTDH with fraud type and modus operandi (method of operation) be shared.`
@@ -182,29 +237,115 @@ function generateCaseFindings(init, act) {
   return items;
 }
 
-function generateProfileReview(ca) {
+function generateProfileReview(ca, act) {
   const items = [];
-  if (ca.accountOpeningDate) {
-    items.push(`The customer account was opened on ${ca.accountOpeningDate}, with a profile as a salaried person.`);
+  if (ca.profileReview === 'Yes') {
+    items.push(`Customer profile review was conducted.`);
+  } else if (ca.profileReview === 'No') {
+    items.push(`Customer profile review was not conducted.`);
   }
-  items.push(
-    `The matter was taken up with the customer, who owned the activity and claimed the money was received from his friend.`
-  );
+  if (ca.accountOpeningDate) {
+    items.push(`The customer account was opened on ${ca.accountOpeningDate}${ca.accountType ? ` as a ${ca.accountType} account` : ''}.`);
+  }
+  if (ca.accountActivity) {
+    items.push(`Customer account activity status: ${ca.accountActivity}.`);
+  }
+  if (ca.highlighted === 'Yes') {
+    items.push(`The account has been highlighted previously${ca.referenceFtdhId ? ` (Reference FTDH ID: ${ca.referenceFtdhId})` : ''}.`);
+  } else if (ca.highlighted === 'No') {
+    items.push(`The account has not been highlighted previously.`);
+  }
+  if (ca.finalDecision) {
+    items.push(`Channel activation decision: ${ca.finalDecision}${ca.decisionDate ? ` (${formatDate(ca.decisionDate)})` : ''}.`);
+  }
+  if (ca.decisionRationale) {
+    items.push(`Decision rationale: ${ca.decisionRationale}.`);
+  }
+  if (items.length === 0) {
+    items.push(`The matter was taken up with the customer for profile review. Further banking service integration is pending.`);
+  }
   return items;
 }
 
-function generateConclusion(act) {
+function generateConclusion(act, bc, mb, ca) {
   const items = [];
-  if (act.lienMarked) {
+  if (act.lienMarked === true) {
     items.push(`The disputed amount is marked under LIEN.`);
   }
   if (act.fundsStatus === 'SF') {
     items.push(`Sufficient funds are available in the beneficiary account.`);
+  } else if (act.fundsStatus === 'NSF') {
+    items.push(`Funds are not fully available (Non-Sufficient Funds) in the beneficiary account.`);
+  }
+  if (act.fundsOnHold != null && act.fundsOnHold > 0) {
+    items.push(`PKR ${formatAmountPlain(act.fundsOnHold)} is being held as lien amount.`);
+  }
+  if (act.fundsLayering === true) {
+    items.push(`Funds layering was detected and outward FTDH has been initiated${act.fundsLayeringId ? ` (${act.fundsLayeringId})` : ''}.`);
+  }
+  if (bc.branchResponseDecision === 'ACCEPT') {
+    items.push(`Branch stance has been reviewed and accepted.`);
+  }
+  if (mb.resolved && mb.acceptedBank) {
+    items.push(`Member bank (${mb.acceptedBank}) has responded and communication is resolved.`);
+  }
+  if (ca.finalDecision === 'ADC Channel Activated') {
+    items.push(`ADC channels have been activated.`);
+  } else if (ca.finalDecision === 'Not Activated') {
+    items.push(`ADC channels were not activated.`);
   }
   if (items.length === 0) {
     items.push(`The case is under review and appropriate action will be taken.`);
   }
   return items;
+}
+
+/**
+ * Collect all attachment files from branchCommunication stageData and branchResponse.
+ */
+function collectAttachments(bc) {
+  const files = [];
+  const seen = new Set();
+
+  // Collect from stageData (each stage's attachments)
+  const stageData = bc.stageData || {};
+  for (const stageKey of ['initial', 'reminder_1', 'reminder_2', 'reminder_3', 'business_consideration']) {
+    const stage = stageData[stageKey];
+    if (stage && Array.isArray(stage.attachments)) {
+      for (const att of stage.attachments) {
+        const key = att.id || att.file_url || att.original_name;
+        if (!seen.has(key)) {
+          seen.add(key);
+          files.push({ name: att.original_name || 'attachment', url: att.file_url || '#' });
+        }
+      }
+    }
+  }
+
+  // Collect from branchResponse documentsUploaded
+  const brDocs = bc.branchResponse?.documentsUploaded || [];
+  for (const att of brDocs) {
+    const key = att.id || att.file_url || att.original_name;
+    if (!seen.has(key)) {
+      seen.add(key);
+      files.push({ name: att.original_name || 'attachment', url: att.file_url || '#' });
+    }
+  }
+
+  // Collect from response history
+  const history = bc.responseHistory || [];
+  for (const resp of history) {
+    const docs = resp.data?.documentsUploaded || [];
+    for (const att of docs) {
+      const key = att.id || att.file_url || att.original_name;
+      if (!seen.has(key)) {
+        seen.add(key);
+        files.push({ name: att.original_name || 'attachment', url: att.file_url || '#' });
+      }
+    }
+  }
+
+  return files;
 }
 
 
@@ -214,13 +355,101 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
   const init = caseData?.initialData || {};
   const act = caseData?.actionsTaken || {};
   const ca = caseData?.channelActivation || {};
+  const bc = caseData?.branchCommunication || {};
+  const mb = caseData?.memberBankCommunication || {};
 
   const today = formatNow();
 
-  const mockFiles = [
-    { name: 'proof.pdf', color: '#E21F0B' },
-    { name: 'Court-file.pdf', color: '#2064B7' },
-  ];
+  // ── Collect all real attachment files from branch communication stage data ──
+  const attachmentFiles = collectAttachments(bc);
+
+  const reportRef = useRef(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadPDF = useCallback(async () => {
+    const el = reportRef.current;
+    if (!el) {
+      console.error('reportRef is null');
+      return;
+    }
+    setDownloading(true);
+    try {
+      // Clone entire report out of the dialog into document.body
+      // so no parent overflow/max-height clips the capture.
+      const clone = el.cloneNode(true);
+      clone.querySelectorAll('[data-pdf-hide]').forEach(btn => btn.remove());
+
+      const width = el.offsetWidth;
+      Object.assign(clone.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: width + 'px',
+        overflow: 'visible',
+        maxHeight: 'none',
+        height: 'auto',
+        zIndex: '99999',
+        pointerEvents: 'none',
+        // Move off-screen vertically so user doesn't see a flash
+        transform: 'translateY(-200vh)',
+      });
+
+      // Expand the scrollable body area in the clone
+      const cloneBody = clone.querySelector('[data-report-body]');
+      if (cloneBody) {
+        Object.assign(cloneBody.style, {
+          overflow: 'visible',
+          maxHeight: 'none',
+          height: 'auto',
+          flex: 'none',
+        });
+      }
+
+      document.body.appendChild(clone);
+
+      // Small delay to let browser layout the clone
+      await new Promise(r => setTimeout(r, 100));
+
+      const dataUrl = await toPng(clone, {
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: '#ffffff',
+        width: width,
+        height: clone.scrollHeight,
+        style: {
+          transform: 'none',
+        },
+      });
+
+      document.body.removeChild(clone);
+
+      // Build PDF from the captured image
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+      const pdfWidth = 595.28; // A4 width in pt
+      const pdfMargin = 20;
+      const contentWidth = pdfWidth - pdfMargin * 2;
+      const scale = contentWidth / img.width;
+      const contentHeight = img.height * scale;
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: [pdfWidth, contentHeight + pdfMargin * 2],
+      });
+
+      pdf.addImage(dataUrl, 'PNG', pdfMargin, pdfMargin, contentWidth, contentHeight);
+      pdf.save(`Investigation_Report_${init.disputeId || 'FTDH'}.pdf`);
+      onOpenChange(false);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      alert('PDF download failed: ' + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  }, [init.disputeId, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -229,6 +458,10 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
         className="w-[95vw] max-h-[92vh] p-0 gap-0 rounded-2xl overflow-hidden flex flex-col border-2 border-[#D5E6FB]"
         style={{ maxWidth: '1000px' }}
       >
+        <VisuallyHidden.Root asChild>
+          <DialogTitle>Investigation Report</DialogTitle>
+        </VisuallyHidden.Root>
+        <div ref={reportRef} className="flex flex-col flex-1 overflow-hidden min-h-0">
         {/* ═══ HEADER — Blue background ═══ */}
         <div className="relative bg-[#2064B7] shrink-0 rounded-t-2xl">
           <div className="absolute left-0 top-0 bottom-0 w-[6px] bg-[#1a4f96] rounded-tl-2xl" />
@@ -247,7 +480,7 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
                   </span>
                 </div>
                 <p className="text-[12px] text-blue-100 font-medium mt-1.5">
-                  PKR_{init.amount ? formatAmount(init.amount) : '50,000'}
+                  PKR {init.amount ? formatAmountPlain(init.amount) : '50,000'}
                 </p>
               </div>
               <div className="flex items-start gap-3">
@@ -256,7 +489,17 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
                   <span className="text-[22px] font-bold text-blue-200 tracking-tight">Line</span>
                 </div>
                 <button
+                  onClick={handleDownloadPDF}
+                  disabled={downloading}
+                  data-pdf-hide
+                  className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white/80 hover:text-white disabled:opacity-50"
+                  title="Download PDF"
+                >
+                  {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+                </button>
+                <button
                   onClick={() => onOpenChange(false)}
+                  data-pdf-hide
                   className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white/80 hover:text-white"
                 >
                   <X className="h-5 w-5" />
@@ -267,7 +510,7 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
         </div>
 
         {/* ═══ BODY ═══ */}
-        <div className="flex-1 overflow-y-auto min-h-0 bg-white">
+        <div data-report-body className="flex-1 overflow-y-auto min-h-0 bg-white">
           <div className="text-center py-4 mx-8 border-b border-[#E5E7EB]">
             <p className="text-[13px] font-semibold text-[#1F2937]">Confidential</p>
             <p className="text-[11px] text-[#6B7280] italic mt-0.5">
@@ -293,60 +536,78 @@ export function FTDHReportModal({ open, onOpenChange, caseData }) {
               <SectionHeader icon={<FraudIcon />} title="Fraud Details" />
               <div className="border border-[#E5E7EB] rounded-lg px-5 bg-white">
                 <DetailRow label="Dispute ID" value={init.disputeId} />
-                <DetailRow label="Sender" value={init.sendingBank?.split('(')[0]?.trim()} />
-                <DetailRow label="Beneficiary" value={maskAccount(init.beneficiaryAccount)} />
+                <DetailRow label="Sender Bank" value={init.sendingBank?.split('(')[0]?.trim()} />
+                <DetailRow label="Beneficiary Bank" value={init.receivingBank} />
                 <DetailRow label="Sender Account #" value={init.senderAccount} />
-                <DetailRow label="Beneficiary Account #" value={init.beneficiaryAccount} />
+                <DetailRow label="Beneficiary Account #" value={maskAccount(init.beneficiaryAccount)} />
+                <DetailRow label="Channel" value={init.channel} />
                 <DetailRow label="Transaction Date" value={formatDate(init.transactionDateTime)} />
                 <DetailRow label="Transaction Time" value={formatTime(init.transactionDateTime)} />
                 <DetailRow label="Stan" value={init.stan} />
-                <DetailRow label="Transaction Amount" value={init.amount ? `PKR ${formatAmount(init.amount)}` : '—'} isLast />
+                <DetailRow label="Transaction Amount" value={init.amount ? `PKR ${formatAmountPlain(init.amount)}` : '—'} isLast />
               </div>
             </div>
 
             {/* 3. Case Background */}
             <div className="mb-8">
               <SectionHeader icon={<BackgroundIcon />} title="Case Background" />
-              <BulletList items={generateCaseBackground(init)} />
+              <BulletList items={generateCaseBackground(init, act, bc)} />
             </div>
 
             {/* 4. Case Findings */}
             <div className="mb-8">
               <SectionHeader icon={<FindingsIcon />} title="Case Findings" />
-              <BulletList items={generateCaseFindings(init, act)} />
+              <BulletList items={generateCaseFindings(init, act, bc, mb)} />
             </div>
 
             {/* 5. Customer Profile Review */}
             <div className="mb-8">
               <SectionHeader icon={<ProfileIcon />} title="Customer Profile Review" />
-              <BulletList items={generateProfileReview(ca)} />
+              <BulletList items={generateProfileReview(ca, act)} />
             </div>
 
             {/* 6. Conclusion */}
             <div className="mb-8">
               <SectionHeader icon={<ConclusionIcon />} title="Conclusion" />
-              <BulletList items={generateConclusion(act)} />
+              <BulletList items={generateConclusion(act, bc, mb, ca)} />
             </div>
 
             {/* 7. Annx */}
             <div className="mb-4">
               <SectionHeader icon={<AnnxIcon />} title="Annx" />
-              <div className="flex items-center gap-3 flex-wrap">
-                {mockFiles.map((file, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-white border border-[#DAE1E7] rounded-full px-4 py-2">
-                    <div className="relative">
-                      <FileText className="w-5 h-5 text-[#AFAFAF]" />
-                      <span className="absolute -bottom-0.5 -left-0.5 text-white text-[6px] px-0.5 rounded" style={{ backgroundColor: file.color }}>
-                        {file.name.split('.').pop().toUpperCase()}
-                      </span>
-                    </div>
-                    <span className="text-[12px] font-medium text-[#374151]">{file.name}</span>
-                  </div>
-                ))}
-              </div>
+              {attachmentFiles.length > 0 ? (
+                <div className="flex items-center gap-3 flex-wrap">
+                  {attachmentFiles.map((file, idx) => {
+                    const ext = (file.name || '').split('.').pop()?.toUpperCase() || 'FILE';
+                    const color = ext === 'PDF' ? '#E21F0B' : ext === 'DOCX' ? '#2064B7' : ext === 'PNG' || ext === 'JPG' || ext === 'JPEG' ? '#16A34A' : '#6B7280';
+                    return (
+                      <a
+                        key={idx}
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 bg-white border border-[#DAE1E7] rounded-full px-4 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
+                        title={`Open ${file.name}`}
+                      >
+                        <div className="relative">
+                          <FileText className="w-5 h-5 text-[#AFAFAF]" />
+                          <span className="absolute -bottom-0.5 -left-0.5 text-white text-[6px] px-0.5 rounded" style={{ backgroundColor: color }}>
+                            {ext}
+                          </span>
+                        </div>
+                        <span className="text-[12px] font-medium text-[#374151]">{file.name}</span>
+                        <ExternalLink className="w-3 h-3 text-[#AFAFAF]" />
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[12px] text-[#8e95a1] italic">No attachments available for this case.</p>
+              )}
             </div>
           </div>
         </div>
+        </div>{/* end reportRef wrapper */}
       </DialogContent>
     </Dialog>
   );

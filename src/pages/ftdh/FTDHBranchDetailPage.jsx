@@ -1,12 +1,22 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  MOCK_FTDH_CASES,
   formatDateTime,
   formatAmount,
 } from '@/data/mockFTDH';
+import { ftdhAPI } from '@/api/ftdh';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { toast } from 'sonner';
+
+const PDFIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#E53935"/>
+    <path d="M14 2v6h6" fill="#FFCDD2"/>
+    <text x="7" y="17" fill="white" fontSize="6" fontWeight="bold">PDF</text>
+  </svg>
+);
 
 // Submit Response Icon (chat bubble)
 const SubmitResponseIcon = () => (
@@ -29,6 +39,7 @@ function SimpleTimelineStep({
   showSubmitButton = false,
   onSubmitClick,
   canSubmit = false,
+  indicatorColor,
 }) {
   return (
     <div className="relative">
@@ -37,10 +48,14 @@ function SimpleTimelineStep({
         <div className="relative flex-shrink-0">
           <div className={`w-[38px] h-[38px] rounded-full border-[3px] flex items-center justify-center ${
             isActive ? 'border-[#2064B7] bg-white' : 'border-[#FFE0DE] bg-white'
-          }`}>
+          }`}
+          style={indicatorColor ? { borderColor: indicatorColor } : undefined}
+          >
             <div className={`w-[20px] h-[20px] rounded-full ${
               isActive ? 'bg-[#2064B7]' : 'bg-[#FFE0DE]'
-            }`} />
+            }`}
+            style={indicatorColor ? { backgroundColor: indicatorColor } : undefined}
+            />
           </div>
           {/* Vertical line */}
           {showLine && !isLast && (
@@ -145,6 +160,15 @@ function SuccessDialog({ open, onClose }) {
 // Response Card Component - Shows response history (Original Design)
 function ResponseCard({ status, datetime, responseData, isExpanded, onToggle }) {
   // status: 'sent' | 'rejected' | 'accepted'
+  const getContactMethodLabel = (method) => {
+    if (!method) return '—';
+    const normalized = String(method).toUpperCase();
+    if (normalized === 'CALL') return 'Call';
+    if (normalized === 'VISIT') return 'Visit';
+    if (normalized === 'EMAIL') return 'Email';
+    return method;
+  };
+
   const statusConfig = {
     sent: {
       label: 'Response Sent',
@@ -195,94 +219,163 @@ function ResponseCard({ status, datetime, responseData, isExpanded, onToggle }) 
 
       {/* Expandable Details */}
       {isExpanded && responseData && (
-        <div className="border-t border-[#EDF1F4] px-4 py-4 space-y-4 bg-white">
-          {/* Question 1 */}
-          <div>
-            <p className="text-[14px] font-medium text-[#4C4C4C] mb-1">1. Branch contacted the customer?</p>
-            <div className="bg-[#F9FAFB] border border-[#EDF1F4] rounded-[4px] p-3">
-              <p className="text-[14px] text-[#4C4C4C]">{responseData.contactedCustomer}</p>
-              {responseData.contactedCustomer === 'No' && responseData.reasonNotContacting && (
-                <div className="mt-2">
-                  <p className="text-[10px] text-[#AFAFAF]">Reason for Not Contacting</p>
-                  <p className="text-[12px] text-[#4C4C4C]">{responseData.reasonNotContacting}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Question 2 */}
-          <div>
-            <p className="text-[14px] font-medium text-[#4C4C4C] mb-1">2. The customer owned the transaction</p>
-            <div className="bg-[#F9FAFB] border border-[#EDF1F4] rounded-[4px] p-3">
-              <p className="text-[14px] text-[#4C4C4C]">{responseData.customerOwnedTransaction}</p>
-              {responseData.customerOwnedTransaction === 'Yes' && responseData.customerStanceFileName && (
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="text-[10px] text-[#AFAFAF]">Customer Stance:</p>
-                  <p className="text-[12px] text-[#2064B7]">{responseData.customerStanceFileName}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Question 3 */}
-          <div>
-            <p className="text-[14px] font-medium text-[#4C4C4C] mb-1">3. Customer Provided the Evidence?</p>
-            <div className="bg-[#F9FAFB] border border-[#EDF1F4] rounded-[4px] p-3">
-              <p className="text-[14px] text-[#4C4C4C]">{responseData.providedEvidence}</p>
-              {responseData.providedEvidence === 'Yes' && responseData.evidenceFileName && (
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="text-[10px] text-[#AFAFAF]">Evidence File:</p>
-                  <p className="text-[12px] text-[#2064B7]">{responseData.evidenceFileName}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Question 4 */}
-          <div>
-            <p className="text-[14px] font-medium text-[#4C4C4C] mb-1">4. Did the Branch perform KYC / CDD?</p>
-            <div className="bg-[#F9FAFB] border border-[#EDF1F4] rounded-[4px] p-3">
-              <p className="text-[14px] text-[#4C4C4C]">{responseData.performedKYC}</p>
-              {responseData.performedKYC === 'No' && responseData.kycReason && (
-                <div className="mt-2">
-                  <p className="text-[10px] text-[#AFAFAF]">Reason for not performing KYC / CDD</p>
-                  <p className="text-[12px] text-[#4C4C4C]">{responseData.kycReason}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Question 5 */}
-          <div>
-            <p className="text-[14px] font-medium text-[#4C4C4C] mb-1">5. Branch feedback on the customer profile</p>
-            <div className="bg-[#F9FAFB] border border-[#EDF1F4] rounded-[4px] p-3">
-              <p className="text-[14px] text-[#4C4C4C]">{responseData.profileFeedback}</p>
-              <div className="mt-2 p-2 bg-white border border-[#EDF1F4] rounded-[4px]">
-                <p className="text-[12px] font-medium text-[#4C4C4C]">PSTR Raised</p>
-                <p className="text-[12px] text-[#4C4C4C]">{responseData.pstrRaised}</p>
-                {responseData.comment && (
-                  <div className="mt-2">
-                    <p className="text-[10px] text-[#AFAFAF]">Comment</p>
-                    <p className="text-[12px] text-[#4C4C4C]">{responseData.comment}</p>
+        <>
+          <div className="mx-4 h-[1px] bg-[#DAE1E7]" />
+          <div className="px-4 py-4 max-h-[488px] overflow-y-auto space-y-4 bg-[#EEF6FF]">
+            {/* Q1: Branch contacted the customer */}
+            <div>
+              <p className="text-[16px] font-medium text-[#4C4C4C] font-['Jost',sans-serif] mb-2">
+                1. Has Branch contacted the customer?
+              </p>
+              <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-4">
+                <p className="text-[14px] text-[#4C4C4C] font-['Jost',sans-serif] mb-2">{responseData.contactedCustomer || '—'}</p>
+                {responseData.contactedCustomer === 'Yes' && responseData.contactMethod && (
+                  <div className="flex flex-wrap items-start gap-6">
+                    <div>
+                      <p className="text-[10px] text-[#AFAFAF]">Mode of Contact</p>
+                      <p className="text-[10px] text-[#4C4C4C] font-medium">{getContactMethodLabel(responseData.contactMethod)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#AFAFAF]">Contact Date &amp; Time</p>
+                      <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.contactDatetime ? formatDateTime(responseData.contactDatetime) : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#AFAFAF]">Contact Number</p>
+                      <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.beneficiaryPhone || '—'}</p>
+                    </div>
+                  </div>
+                )}
+                {responseData.contactedCustomer === 'No' && responseData.reasonNotContacting && (
+                  <div>
+                    <p className="text-[10px] text-[#AFAFAF]">Reason for Not Contacting</p>
+                    <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.reasonNotContacting}</p>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* Q2: Customer owned the transaction */}
+            <div>
+              <p className="text-[16px] font-medium text-[#4C4C4C] font-['Jost',sans-serif] mb-2">
+                2. The customer owned the transaction
+              </p>
+              <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-4">
+                <p className="text-[14px] text-[#4C4C4C] font-['Jost',sans-serif] mb-2">{responseData.customerOwnedTransaction || '—'}</p>
+                {responseData.customerOwnedTransaction === 'No' && responseData.customerStanceText && (
+                  <>
+                    <p className="text-[10px] text-[#AFAFAF]">Comment by Branch</p>
+                    <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.customerStanceText}</p>
+                  </>
+                )}
+                {responseData.customerOwnedTransaction === 'Yes' && responseData.customerStanceText && (
+                  <>
+                    <p className="text-[10px] text-[#AFAFAF]">Customer Stance</p>
+                    <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.customerStanceText}</p>
+                  </>
+                )}
+                {responseData.customerStanceFiles?.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {responseData.customerStanceFiles.map((file, fileIndex) => (
+                      <div key={fileIndex} className="flex items-center gap-2">
+                        <PDFIcon />
+                        {file.url ? (
+                          <a href={file.url} target="_blank" rel="noreferrer" className="text-[13px] text-[#2064B7] font-medium hover:underline">
+                            {file.name}
+                          </a>
+                        ) : (
+                          <span className="text-[13px] text-[#4C4C4C] font-medium">{file.name}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Q3: Evidence */}
+            <div>
+              <p className="text-[16px] font-medium text-[#4C4C4C] font-['Jost',sans-serif] mb-2">
+                3. Customer Provided the Evidence?
+              </p>
+              <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-4">
+                <p className="text-[14px] text-[#4C4C4C] font-['Jost',sans-serif] mb-2">{responseData.providedEvidence || '—'}</p>
+                {responseData.providedEvidence === 'Yes' && responseData.evidenceFiles?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-[#AFAFAF]">Original provided evidence</p>
+                    <div className="mt-1 space-y-1">
+                      {responseData.evidenceFiles.map((file, fileIndex) => (
+                        <div key={fileIndex} className="flex items-center gap-2">
+                          <PDFIcon />
+                          {file.url ? (
+                            <a href={file.url} target="_blank" rel="noreferrer" className="text-[13px] text-[#2064B7] font-medium hover:underline">
+                              {file.name}
+                            </a>
+                          ) : (
+                            <span className="text-[13px] text-[#4C4C4C] font-medium">{file.name}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Q4: KYC/CDD */}
+            <div>
+              <p className="text-[16px] font-medium text-[#4C4C4C] font-['Jost',sans-serif] mb-2">
+                4. Did the Branch perform KYC/CDD?
+              </p>
+              <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-4">
+                <p className="text-[14px] text-[#4C4C4C] font-['Jost',sans-serif] mb-2">{responseData.performedKYC || '—'}</p>
+                {responseData.performedKYC === 'No' && responseData.kycReason && (
+                  <div>
+                    <p className="text-[10px] text-[#AFAFAF]">Reason for not performing KYC/CDD</p>
+                    <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.kycReason}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Q5: Profile feedback */}
+            <div>
+              <p className="text-[16px] font-medium text-[#4C4C4C] font-['Jost',sans-serif] mb-2">
+                5. Branch feedback on the customer profile
+              </p>
+              <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-4">
+                <p className="text-[14px] text-[#4C4C4C] font-['Jost',sans-serif] mb-2">{responseData.profileFeedback || '—'}</p>
+                <div className="space-y-2">
+                  <div className="bg-white border border-[#EDF1F4] rounded-[3px] p-2 ml-4">
+                    <p className="text-[14px] text-[#4C4C4C] font-medium font-['Jost',sans-serif]">PSTR Raised</p>
+                    <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.pstrRaised || 'N/A'}</p>
+                    {responseData.comment && (
+                      <>
+                        <p className="text-[10px] text-[#AFAFAF] mt-1">Comment</p>
+                        <p className="text-[10px] text-[#4C4C4C] font-medium">{responseData.comment}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
 // Branch Response Form Component
-function BranchResponseForm({ onSubmit, onClose }) {
+function BranchResponseForm({ onSubmit, onClose, customerPhone = '' }) {
   const [formData, setFormData] = useState({
     contactedCustomer: 'No',
+    contactMethod: 'CALL',
+    contactDatetime: '',
     reasonNotContacting: '',
     customerOwnedTransaction: 'Yes',
     customerStanceFile: null,
     customerStanceFileName: '',
+    customerComment: '',
     providedEvidence: 'Yes',
     evidenceFile: null,
     evidenceFileName: '',
@@ -296,8 +389,11 @@ function BranchResponseForm({ onSubmit, onClose }) {
   const stanceFileRef = useRef(null);
   const evidenceFileRef = useRef(null);
 
+  const [errors, setErrors] = useState({});
+
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, [field]: undefined }));
   };
 
   const handleFileChange = (field, fileNameField, e) => {
@@ -308,11 +404,44 @@ function BranchResponseForm({ onSubmit, onClose }) {
         [field]: file,
         [fileNameField]: file.name,
       }));
+      setErrors(prev => ({ ...prev, [field]: undefined }));
     }
+  };
+
+  const validate = () => {
+    const newErrors = {};
+    if (formData.contactedCustomer === 'Yes' && !formData.contactDatetime) {
+      newErrors.contactDatetime = 'Contact date & time is required';
+    }
+    if (formData.contactedCustomer === 'No' && !formData.reasonNotContacting.trim()) {
+      newErrors.reasonNotContacting = 'Reason for not contacting is required';
+    }
+    if (formData.customerOwnedTransaction === 'Yes' && !formData.customerStanceFile) {
+      newErrors.customerStanceFile = 'Customer stance attachment is required';
+    }
+    if (formData.customerOwnedTransaction === 'No' && !formData.customerComment.trim()) {
+      newErrors.customerComment = 'Comment by Branch is required';
+    }
+    if (formData.providedEvidence === 'Yes' && !formData.evidenceFile) {
+      newErrors.evidenceFile = 'Evidence file is required';
+    }
+    if (formData.performedKYC === 'No' && !formData.kycReason.trim()) {
+      newErrors.kycReason = 'Reason for not performing KYC/CDD is required';
+    }
+    if (!formData.comment.trim()) {
+      newErrors.comment = 'Comment is required';
+    }
+    return newErrors;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
+    setErrors({});
     onSubmit(formData);
   };
 
@@ -334,7 +463,7 @@ function BranchResponseForm({ onSubmit, onClose }) {
         {/* Question 1: Branch contacted the customer */}
         <div>
           <p className="text-[16px] font-medium text-[#4C4C4C] mb-3">
-            Branch contacted the customer<span className="text-red-500">*</span>
+            Has Branch contacted the customer<span className="text-red-500">*</span>
           </p>
           <div className="flex items-center gap-6">
             <RadioButton
@@ -350,6 +479,58 @@ function BranchResponseForm({ onSubmit, onClose }) {
               onChange={() => handleChange('contactedCustomer', 'No')}
             />
           </div>
+          {formData.contactedCustomer === 'Yes' && (
+            <div className="mt-3 ml-4 space-y-3">
+              <div>
+                <p className="text-[12px] text-[#4C4C4C] mb-2">
+                  Mode of Contact<span className="text-red-500">*</span>
+                </p>
+                <div className="flex items-center gap-6">
+                  <RadioButton
+                    name="contactMethod"
+                    label="Call"
+                    checked={formData.contactMethod === 'CALL'}
+                    onChange={() => handleChange('contactMethod', 'CALL')}
+                  />
+                  <RadioButton
+                    name="contactMethod"
+                    label="Visit"
+                    checked={formData.contactMethod === 'VISIT'}
+                    onChange={() => handleChange('contactMethod', 'VISIT')}
+                  />
+                  <RadioButton
+                    name="contactMethod"
+                    label="Email"
+                    checked={formData.contactMethod === 'EMAIL'}
+                    onChange={() => handleChange('contactMethod', 'EMAIL')}
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-[12px] text-[#4C4C4C] mb-1">
+                  Contact Date &amp; Time<span className="text-red-500">*</span>
+                </p>
+                <input
+                  type="datetime-local"
+                  value={formData.contactDatetime}
+                  onChange={(e) => handleChange('contactDatetime', e.target.value)}
+                  className={`w-full border rounded-[5px] px-3 py-2 text-[13px] text-[#4C4C4C] focus:outline-none focus:border-[#2064B7] ${errors.contactDatetime ? 'border-red-400' : 'border-[#EDF1F4]'}`}
+                />
+                {errors.contactDatetime && (
+                  <p className="text-[11px] text-red-500 mt-1">{errors.contactDatetime}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[12px] text-[#4C4C4C] mb-1">Contact Number</p>
+                <input
+                  type="text"
+                  value={customerPhone || '—'}
+                  readOnly
+                  className="w-full border border-[#EDF1F4] rounded-[5px] px-3 py-2 text-[13px] text-[#4C4C4C] bg-[#F9FAFB] cursor-not-allowed"
+                />
+              </div>
+            </div>
+          )}
           {formData.contactedCustomer === 'No' && (
             <div className="mt-3 ml-4">
               <p className="text-[12px] text-[#4C4C4C] mb-2">
@@ -359,8 +540,11 @@ function BranchResponseForm({ onSubmit, onClose }) {
                 value={formData.reasonNotContacting}
                 onChange={(e) => handleChange('reasonNotContacting', e.target.value)}
                 placeholder="Enter reason"
-                className="w-full h-[80px] border border-[#EDF1F4] rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7]"
+                className={`w-full h-[80px] border rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7] ${errors.reasonNotContacting ? 'border-red-400' : 'border-[#EDF1F4]'}`}
               />
+              {errors.reasonNotContacting && (
+                <p className="text-[11px] text-red-500 mt-1">{errors.reasonNotContacting}</p>
+              )}
             </div>
           )}
         </div>
@@ -396,7 +580,7 @@ function BranchResponseForm({ onSubmit, onClose }) {
                   ref={stanceFileRef}
                   onChange={(e) => handleFileChange('customerStanceFile', 'customerStanceFileName', e)}
                   className="hidden"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  accept=".pdf,.jpg,.jpeg,.png"
                 />
                 <Button
                   type="button"
@@ -409,6 +593,25 @@ function BranchResponseForm({ onSubmit, onClose }) {
                   <span className="text-[12px] text-[#4C4C4C]">{formData.customerStanceFileName}</span>
                 )}
               </div>
+              {errors.customerStanceFile && (
+                <p className="text-[11px] text-red-500 mt-1">{errors.customerStanceFile}</p>
+              )}
+            </div>
+          )}
+          {formData.customerOwnedTransaction === 'No' && (
+            <div className="mt-3 ml-4">
+              <p className="text-[12px] text-[#4C4C4C] mb-2">
+                Comment by Branch<span className="text-red-500">*</span>
+              </p>
+              <textarea
+                value={formData.customerComment}
+                onChange={(e) => handleChange('customerComment', e.target.value)}
+                placeholder="Enter comment"
+                className={`w-full h-[80px] border rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7] ${errors.customerComment ? 'border-red-400' : 'border-[#EDF1F4]'}`}
+              />
+              {errors.customerComment && (
+                <p className="text-[11px] text-red-500 mt-1">{errors.customerComment}</p>
+              )}
             </div>
           )}
         </div>
@@ -444,7 +647,7 @@ function BranchResponseForm({ onSubmit, onClose }) {
                   ref={evidenceFileRef}
                   onChange={(e) => handleFileChange('evidenceFile', 'evidenceFileName', e)}
                   className="hidden"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  accept=".pdf,.jpg,.jpeg,.png"
                 />
                 <Button
                   type="button"
@@ -457,6 +660,9 @@ function BranchResponseForm({ onSubmit, onClose }) {
                   <span className="text-[12px] text-[#4C4C4C]">{formData.evidenceFileName}</span>
                 )}
               </div>
+              {errors.evidenceFile && (
+                <p className="text-[11px] text-red-500 mt-1">{errors.evidenceFile}</p>
+              )}
             </div>
           )}
         </div>
@@ -489,8 +695,11 @@ function BranchResponseForm({ onSubmit, onClose }) {
                 value={formData.kycReason}
                 onChange={(e) => handleChange('kycReason', e.target.value)}
                 placeholder="Enter reason"
-                className="w-full h-[80px] border border-[#EDF1F4] rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7]"
+                className={`w-full h-[80px] border rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7] ${errors.kycReason ? 'border-red-400' : 'border-[#EDF1F4]'}`}
               />
+              {errors.kycReason && (
+                <p className="text-[11px] text-red-500 mt-1">{errors.kycReason}</p>
+              )}
             </div>
           )}
         </div>
@@ -541,8 +750,11 @@ function BranchResponseForm({ onSubmit, onClose }) {
               value={formData.comment}
               onChange={(e) => handleChange('comment', e.target.value)}
               placeholder="Enter Comment"
-              className="w-full h-[60px] border border-[#EDF1F4] rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7]"
+              className={`w-full h-[60px] border rounded-[5px] p-3 text-[14px] text-[#4C4C4C] placeholder:text-[#AFAFAF] resize-none focus:outline-none focus:border-[#2064B7] ${errors.comment ? 'border-red-400' : 'border-[#EDF1F4]'}`}
             />
+            {errors.comment && (
+              <p className="text-[11px] text-red-500 mt-1">{errors.comment}</p>
+            )}
           </div>
         </div>
 
@@ -698,13 +910,35 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // Find the case data
-  const caseData = useMemo(() => {
-    return MOCK_FTDH_CASES.find(c => c.id === id) || MOCK_FTDH_CASES[0];
+  const [caseData, setCaseData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const loadCase = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await ftdhAPI.getInward(id);
+        setCaseData(response.data);
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          setError('FTDH case not found');
+        } else {
+          setError(err?.response?.data?.error || err.message || 'Failed to load case');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (id) {
+      loadCase();
+    }
   }, [id]);
 
   // Determine which design to use
-  const useFullTimelineDesign = FULL_TIMELINE_CASE_IDS.includes(id);
+  const useFullTimelineDesign = false;
 
   // State
   const [showResponseForm, setShowResponseForm] = useState(false);
@@ -724,7 +958,7 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
   const init = caseData?.initialData || {};
 
   // For demo case (id === '6'), show pre-populated response history
-  const isDemoCase = id === '6';
+  const isDemoCase = false;
   const demoResponseHistory = useMemo(() => {
     if (!isDemoCase) return [];
     return [
@@ -736,34 +970,97 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
   }, [isDemoCase]);
 
   // Combined response history for simple view
-  const allResponses = isDemoCase ? demoResponseHistory : responseHistory;
+  const backendResponseHistory = useMemo(() => {
+    return (bc?.responseHistory || []).map((item) => {
+      const documents = item?.data?.documentsUploaded || [];
+      const stanceFiles = documents.filter((doc) => doc.attachment_type === 'CUSTOMER_STANCE');
+      const evidenceFiles = documents.filter((doc) => doc.attachment_type === 'EVIDENCE');
+      const otherFiles = documents.filter((doc) => doc.attachment_type === 'OTHER');
 
-  // Get last response status for simple view
-  const lastResponse = allResponses.length > 0 ? allResponses[allResponses.length - 1] : null;
-  const canSubmitResponse = !lastResponse || lastResponse.status === 'rejected';
+      return {
+        status: item.status || 'sent',
+        stageKey: item.stageKey || 'initial',
+        datetime: item.submittedAt ? formatDateTime(item.submittedAt) : '—',
+        responseData: {
+          contactedCustomer: item?.data?.customerContacted ? 'Yes' : 'No',
+          contactMethod: item?.data?.contactMethod || null,
+          contactDatetime: item?.data?.contactDatetime || null,
+          beneficiaryPhone: caseData?.initialData?.beneficiaryPhone || null,
+          reasonNotContacting: item?.data?.reasonNotContacting || '',
+          customerOwnedTransaction: item?.data?.customerAdmitsTransaction ? 'Yes' : 'No',
+          customerStanceText: item?.data?.customerStatement || '',
+          customerStanceFileName: stanceFiles[0]?.original_name || stanceFiles[0]?.name || '',
+          customerStanceFiles: stanceFiles.map((doc) => ({
+            name: doc.original_name || doc.name || 'Attachment.pdf',
+            url: doc.file_url || doc.url || null,
+          })),
+          providedEvidence: item?.data?.providedEvidence === true ? 'Yes' : item?.data?.providedEvidence === false ? 'No' : (evidenceFiles.length > 0 ? 'Yes' : 'No'),
+          evidenceFiles: [...evidenceFiles, ...otherFiles].map((doc) => ({
+            name: doc.original_name || doc.name || 'Attachment.pdf',
+            url: doc.file_url || doc.url || null,
+          })),
+          performedKYC: item?.data?.kycVerified ? 'Yes' : 'No',
+          kycReason: item?.data?.kycNotes || '',
+          profileFeedback: item?.data?.profileFeedback || item?.data?.branchRecommendation || '—',
+          pstrRaised: item?.data?.pstrRaised === true ? 'Yes' : item?.data?.pstrRaised === false ? 'No' : 'N/A',
+          comment: item?.data?.additionalComment || item?.data?.branchRecommendation || '',
+        },
+      };
+    });
+  }, [bc, caseData]);
 
-  // Determine which intimation type to show for simple view
-  const getIntimationType = () => {
-    if (bc.thirdReminderSent) return '3rd Reminder';
-    if (bc.secondReminderSent) return '2nd Reminder';
-    if (bc.firstReminderSent) return '1st Reminder';
-    return 'Initial Intimation';
-  };
+  const allResponses = isDemoCase ? demoResponseHistory : (backendResponseHistory.length ? backendResponseHistory : responseHistory);
 
-  const getIntimationDate = () => {
-    if (bc.thirdReminderSent && bc.thirdReminderDate) return formatDateTime(bc.thirdReminderDate);
-    if (bc.secondReminderSent && bc.secondReminderDate) return formatDateTime(bc.secondReminderDate);
-    if (bc.firstReminderSent && bc.firstReminderDate) return formatDateTime(bc.firstReminderDate);
-    return bc.initialIntimationDate ? formatDateTime(bc.initialIntimationDate) : '02/06/2025 10:50 AM';
-  };
+  const activeCommunicationStepKey = useMemo(() => {
+    if (bc.businessConsiderationSubmitted) return 'business_consideration';
+    if (bc.thirdReminderSent) return '3rd_reminder';
+    if (bc.secondReminderSent) return '2nd_reminder';
+    if (bc.firstReminderSent) return '1st_reminder';
+    return 'initial';
+  }, [bc]);
 
-  const intimationType = getIntimationType();
-  const intimationDate = getIntimationDate();
+  const canSubmitResponse = useMemo(() => {
+    const stageMatchKeys =
+      activeCommunicationStepKey === 'business_consideration'
+        ? ['3rd_reminder', 'business_consideration']
+        : [activeCommunicationStepKey];
+
+    const stageResponses = allResponses.filter((item) => stageMatchKeys.includes(item.stageKey));
+    if (stageResponses.length === 0) return true;
+
+    const lastStageResponse = stageResponses[stageResponses.length - 1];
+    return lastStageResponse.status === 'rejected';
+  }, [allResponses, activeCommunicationStepKey, bc.businessConsiderationSubmitted]);
+
+  // Get responses that belong to a specific timeline step
+  const getResponsesForStep = useCallback((stepKey) => {
+    if (!stepKey || stepKey === 'pending') return [];
+
+    if (stepKey === 'business_consideration') {
+      const bcAt = bc.businessConsiderationDate ? new Date(bc.businessConsiderationDate) : null;
+      return allResponses.filter((resp) => {
+        if (resp.stageKey === 'business_consideration') return true;
+        if (resp.stageKey !== '3rd_reminder' || !bcAt) return false;
+        const submittedAt = resp.datetime ? new Date(resp.datetime) : null;
+        return submittedAt && submittedAt >= bcAt;
+      });
+    }
+
+    if (stepKey === '3rd_reminder' && bc.businessConsiderationDate) {
+      const bcAt = new Date(bc.businessConsiderationDate);
+      return allResponses.filter((resp) => {
+        if (resp.stageKey !== '3rd_reminder') return false;
+        const submittedAt = resp.datetime ? new Date(resp.datetime) : null;
+        if (!submittedAt) return true;
+        return submittedAt < bcAt;
+      });
+    }
+
+    return allResponses.filter((resp) => resp.stageKey === stepKey);
+  }, [allResponses, bc.businessConsiderationDate]);
 
   // Build timeline steps for full timeline view
   const branchTimelineSteps = useMemo(() => {
-    if (!useFullTimelineDesign) return [];
-
     const steps = [];
 
     // Initial Intimation
@@ -804,18 +1101,18 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
       });
     }
 
-    // Business Consideration
+    // Business Consideration (escalation stage visible to branch for sync)
     if (bc.businessConsiderationSubmitted) {
       steps.push({
         key: 'business_consideration',
-        title: 'Business Consideration',
+        title: 'Record Submitted for business consideration',
         datetime: bc.businessConsiderationDate ? formatDateTime(bc.businessConsiderationDate) : '',
         isActive: true,
       });
     }
 
     return steps;
-  }, [bc, useFullTimelineDesign]);
+  }, [bc]);
 
   // Check if member bank has activity (for full timeline view)
   const hasMemberBankActivity = useFullTimelineDesign && (mbc.initialSubmissionSent || mbc.feedbackReceived === 'Yes');
@@ -880,24 +1177,53 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
   }, [mbc, init, hasMemberBankActivity, hasLayering]);
 
   // Handle form submission for SIMPLE view
-  const handleSimpleSubmitResponse = useCallback((formData) => {
+  const handleSimpleSubmitResponse = useCallback(async (formData) => {
     setShowResponseForm(false);
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const payload = new FormData();
+      const stanceText = formData.customerOwnedTransaction === 'No'
+        ? (formData.customerComment || '')
+        : '';
+      const recommendation = [formData.profileFeedback, formData.comment].filter(Boolean).join(' | ');
+
+      payload.append('customer_contacted', String(formData.contactedCustomer === 'Yes'));
+      payload.append('contact_method', formData.contactMethod || 'CALL');
+      payload.append('customer_reached', String(formData.contactedCustomer === 'Yes'));
+      payload.append('reason_not_contacting', formData.reasonNotContacting || '');
+      if (formData.contactDatetime) {
+        payload.append('contact_datetime', formData.contactDatetime);
+      }
+      payload.append('customer_stance', stanceText);
+      payload.append('customer_admits_transaction', String(formData.customerOwnedTransaction === 'Yes'));
+      payload.append('provided_evidence', String(formData.providedEvidence === 'Yes'));
+      payload.append('kyc_verified', String(formData.performedKYC === 'Yes'));
+      payload.append('kyc_notes', formData.kycReason || '');
+      payload.append('profile_feedback', formData.profileFeedback || '');
+      payload.append('pstr_raised', String(formData.pstrRaised === 'Yes'));
+      payload.append('additional_comment', formData.comment || '');
+      payload.append('branch_recommendation', recommendation || formData.profileFeedback || '');
+
+      if (formData.customerStanceFile) {
+        payload.append('customer_stance_documents', formData.customerStanceFile);
+      }
+      if (formData.providedEvidence === 'Yes' && formData.evidenceFile) {
+        payload.append('evidence_documents', formData.evidenceFile);
+      }
+
+      await ftdhAPI.submitBranchResponse(id, payload);
+      toast.success('Response submitted successfully');
       setShowSuccess(true);
 
-      const now = new Date();
-      const datetime = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
-
-      setResponseHistory(prev => [...prev, {
-        status: 'sent',
-        datetime,
-        responseData: formData,
-      }]);
-    }, 2000);
-  }, []);
+      const response = await ftdhAPI.getInward(id);
+      setCaseData(response.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Failed to submit response');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [id]);
 
   // Handle form submission for FULL TIMELINE view
   const handleTimelineSubmitResponse = useCallback((formData) => {
@@ -953,6 +1279,34 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
     const last = responses.length > 0 ? responses[responses.length - 1] : null;
     return !last || last.status === 'rejected';
   };
+
+  if (loading) {
+    return (
+      <div className="h-[calc(100vh-100px)] flex items-center justify-center text-muted-foreground font-['Inter',sans-serif]">
+        Loading FTDH case...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-[calc(100vh-100px)] flex flex-col gap-4 justify-center max-w-2xl mx-auto font-['Inter',sans-serif]">
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <div>
+          <Button onClick={() => navigate('/ftdh/branch')} variant="outline">
+            Back to Branch Cases
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!caseData) {
+    return null;
+  }
 
   return (
     <div className="h-[calc(100vh-100px)] flex flex-col font-['Inter',sans-serif] relative">
@@ -1033,40 +1387,70 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
             {/* ============ SIMPLE VIEW (Original Design) ============ */}
             {!useFullTimelineDesign && (
               <>
-                <SimpleTimelineStep
-                  title={intimationType}
-                  datetime={intimationDate}
-                  isActive={true}
-                  isLast={true}
-                  showLine={false}
-                  showSubmitButton={true}
-                  onSubmitClick={() => setShowResponseForm(true)}
-                  canSubmit={canSubmitResponse && !showResponseForm}
-                />
+                <div className="space-y-0">
+                  {branchTimelineSteps.map((step, index) => {
+                    const isLast = index === branchTimelineSteps.length - 1;
+                    const isCurrentActiveStep = step.key === activeCommunicationStepKey;
+                    const stepResponses = getResponsesForStep(step.key);
+                    const isFormOpenForThisStep = isCurrentActiveStep && showResponseForm;
+                    return (
+                      <div key={step.key} className="relative mb-[40px] last:mb-0">
+                        {/* Connecting line to next step — stretches through response cards + gap */}
+                        {!isLast && (
+                          <div
+                            className="absolute left-[19px] top-[38px] w-[2px] bg-[#DAE1E7] -translate-x-1/2"
+                            style={{ bottom: '-40px' }}
+                          />
+                        )}
+                        <SimpleTimelineStep
+                          title={step.title}
+                          datetime={step.datetime}
+                          isActive={step.isActive}
+                          indicatorColor={step.key === 'business_consideration' ? '#FFC4BE' : undefined}
+                          isLast={isLast}
+                          showLine={false}
+                          showSubmitButton={true}
+                          onSubmitClick={() => setShowResponseForm(true)}
+                          canSubmit={
+                            isCurrentActiveStep &&
+                            canSubmitResponse &&
+                            !showResponseForm
+                          }
+                        />
 
-                {showResponseForm && (
-                  <div className="ml-[54px] mt-4">
-                    <BranchResponseForm
-                      onSubmit={handleSimpleSubmitResponse}
-                      onClose={() => setShowResponseForm(false)}
-                    />
-                  </div>
-                )}
+                        {/* Responses for this specific step */}
+                        {stepResponses.length > 0 && !showResponseForm && (
+                          <div className="ml-[54px] mt-3 space-y-3">
+                            {stepResponses.map((response, rIdx) => {
+                              const cardKey = `${step.key}-${rIdx}`;
+                              return (
+                                <ResponseCard
+                                  key={cardKey}
+                                  status={response.status}
+                                  datetime={response.datetime}
+                                  responseData={response.responseData}
+                                  isExpanded={expandedCards[cardKey]}
+                                  onToggle={() => toggleCardExpansion(cardKey)}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
 
-                {allResponses.length > 0 && !showResponseForm && (
-                  <div className="ml-[54px] mt-4 space-y-3">
-                    {allResponses.map((response, index) => (
-                      <ResponseCard
-                        key={index}
-                        status={response.status}
-                        datetime={response.datetime}
-                        responseData={response.responseData}
-                        isExpanded={expandedCards[index]}
-                        onToggle={() => toggleCardExpansion(index)}
-                      />
-                    ))}
-                  </div>
-                )}
+                        {/* Response form — shown under the active step */}
+                        {isFormOpenForThisStep && (
+                          <div className="ml-[54px] mt-4">
+                            <BranchResponseForm
+                              onSubmit={handleSimpleSubmitResponse}
+                              onClose={() => setShowResponseForm(false)}
+                              customerPhone={caseData?.initialData?.beneficiaryPhone}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </>
             )}
 
@@ -1098,6 +1482,7 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
                             setShowResponseForm(false);
                             setActiveStep(null);
                           }}
+                          customerPhone={caseData?.initialData?.beneficiaryPhone}
                         />
                       )}
                     </div>

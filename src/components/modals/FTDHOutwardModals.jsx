@@ -15,7 +15,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MOCK_CHANNELS } from '@/data/mockFTDH';
+import { ftdhAPI } from '@/api/ftdh';
 import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 
 function FieldLabel({ label, required }) {
   return (
@@ -26,15 +28,16 @@ function FieldLabel({ label, required }) {
   );
 }
 
-function TextField({ label, required, value, onChange, className = '' }) {
+function TextField({ label, required, value, onChange, className = '', error = '' }) {
   return (
     <div className={className}>
       <FieldLabel label={label} required={required} />
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[40px] md:h-[47px] rounded-[6px] border-[#05AEE5] bg-[#F9FAFB] text-[15px] md:text-[16px] text-[#4C4C4C] font-['Jost',sans-serif]"
+        className={`h-[40px] md:h-[47px] rounded-[6px] bg-[#F9FAFB] text-[15px] md:text-[16px] text-[#4C4C4C] font-['Jost',sans-serif] ${error ? 'border-red-500' : 'border-[#05AEE5]'}`}
       />
+      {error && <p className="text-red-500 text-[12px] mt-1 font-['Jost',sans-serif]">{error}</p>}
     </div>
   );
 }
@@ -229,29 +232,116 @@ export function FTDHOutwardTypeModal({ open, onOpenChange, onSelectSource, onSel
   );
 }
 
-export function FTDHOutwardSourceModal({ open, onOpenChange }) {
+export function FTDHOutwardSourceModal({ open, onOpenChange, onCaseCreated }) {
   const [form, setForm] = useState({
-    accountNumberCnic: '000017900357003',
-    customerDisputeDateTime: '2025-10-09T17:30',
-    eformComplaintNo: '89301',
-    ftdhDisputeId: 'Raast-NayaPay-250222',
-    ftdhLogDateTime: '2025-10-09T17:30',
+    accountNumberCnic: '',
+    customerDisputeDateTime: '',
+    eformComplaintNo: '',
+    ftdhDisputeId: '',
+    ftdhLogDateTime: '',
     channel: 'Raast',
-    beneficiary: 'Easypaisa',
-    senderAccountNumber: 'PKa45TMBL000017900357003',
-    beneficiaryAccountNumber: 'PKa45HABB000017900357003',
-    trxDate: '2025-10-09',
-    trxTime: '17:30',
-    trxAmount: 'Pkr 24,700',
-    stan: '654281',
+    beneficiary: '',
+    senderAccountNumber: '',
+    beneficiaryAccountNumber: '',
+    trxDate: '',
+    trxTime: '',
+    trxAmount: '',
+    stan: '',
     ftdhAging: '01',
     fundsStatus: 'SF',
   });
+  const [creating, setCreating] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
 
-  const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const handleCreate = () => {
-    toast.success('Outward source case created successfully');
-    onOpenChange(false);
+  const update = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    // Clear inline error for the field being edited
+    setFormErrors((prev) => { const { [key]: _, ...rest } = prev; return rest; });
+    if (key === 'beneficiary') {
+      if (value.trim().toUpperCase() === 'HBL') {
+        setFormErrors((prev) => ({ ...prev, beneficiary: 'Beneficiary bank cannot be HBL. HBL is the sender bank.' }));
+      }
+    }
+  };
+
+  const handleCreate = async () => {
+    const errors = {};
+    if (form.beneficiary.trim().toUpperCase() === 'HBL') {
+      errors.beneficiary = 'Beneficiary bank cannot be HBL. HBL is the sender bank.';
+    }
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    try {
+      setCreating(true);
+      const amountRaw = String(form.trxAmount).replace(/[^0-9.]/g, '');
+      const payload = {
+        ftdh_type: 'ONUS',
+        account_number_cnic: form.accountNumberCnic,
+        customer_dispute_datetime: form.customerDisputeDateTime ? new Date(form.customerDisputeDateTime).toISOString() : null,
+        complaint_number: form.eformComplaintNo,
+        funds_status: form.fundsStatus || null,
+        onelink_dispute_id: form.ftdhDisputeId || '',
+        ftdh_log_datetime: form.ftdhLogDateTime ? new Date(form.ftdhLogDateTime).toISOString() : null,
+        ftdh_aging: form.ftdhAging ? parseInt(form.ftdhAging, 10) : null,
+        target_bank: form.beneficiary,
+        target_bank_code: '',
+        target_account: form.beneficiaryAccountNumber,
+        sender_bank: 'HBL',
+        sender_bank_code: '',
+        sender_account: form.senderAccountNumber,
+        transaction_date: form.trxDate,
+        transaction_time: form.trxTime || null,
+        transaction_amount: amountRaw || '0',
+        transaction_currency: 'PKR',
+        transaction_channel: form.channel,
+        stan: form.stan || '',
+      };
+      await ftdhAPI.createOutward(payload);
+      toast.success('Outward OnUs case created successfully');
+      onOpenChange(false);
+      onCaseCreated?.();
+    } catch (err) {
+      const detail = err?.response?.data;
+      if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+        const fieldMap = {
+          target_bank: 'beneficiary',
+          target_account: 'beneficiaryAccountNumber',
+          account_number_cnic: 'accountNumberCnic',
+          customer_dispute_datetime: 'customerDisputeDateTime',
+          complaint_number: 'eformComplaintNo',
+          transaction_date: 'trxDate',
+          transaction_time: 'trxTime',
+          transaction_amount: 'trxAmount',
+          transaction_channel: 'channel',
+          sender_account: 'senderAccountNumber',
+          onelink_dispute_id: 'ftdhDisputeId',
+          ftdh_log_datetime: 'ftdhLogDateTime',
+          ftdh_aging: 'ftdhAging',
+          funds_status: 'fundsStatus',
+          stan: 'stan',
+        };
+        const mapped = {};
+        let hasFieldError = false;
+        for (const [backendKey, messages] of Object.entries(detail)) {
+          const formKey = fieldMap[backendKey];
+          if (formKey) {
+            mapped[formKey] = Array.isArray(messages) ? messages[0] : messages;
+            hasFieldError = true;
+          }
+        }
+        if (hasFieldError) {
+          setFormErrors(mapped);
+        } else {
+          toast.error(JSON.stringify(detail));
+        }
+      } else {
+        toast.error(String(detail || 'Failed to create case'));
+      }
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -285,6 +375,7 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
                 label="Account number / CNIC"
                 value={form.accountNumberCnic}
                 onChange={(v) => update('accountNumberCnic', v)}
+                error={formErrors.accountNumberCnic}
               />
               <DateTimeField
                 label="Customer Dispute Date & Time"
@@ -296,6 +387,7 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
                 label="E-form / Complaint No"
                 value={form.eformComplaintNo}
                 onChange={(v) => update('eformComplaintNo', v)}
+                error={formErrors.eformComplaintNo}
               />
             </div>
 
@@ -315,10 +407,10 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
                 onChange={(v) => update('ftdhLogDateTime', v)}
               />
               <ChannelField value={form.channel} onChange={(v) => update('channel', v)} />
-              <TextField label="Beneficiary" value={form.beneficiary} onChange={(v) => update('beneficiary', v)} />
+              <TextField label="Beneficiary" value={form.beneficiary} onChange={(v) => update('beneficiary', v)} error={formErrors.beneficiary} />
 
-              <TextField label="Sender Account Number" value={form.senderAccountNumber} onChange={(v) => update('senderAccountNumber', v)} />
-              <TextField label="Beneficiary Account Number" value={form.beneficiaryAccountNumber} onChange={(v) => update('beneficiaryAccountNumber', v)} />
+              <TextField label="Sender Account Number" value={form.senderAccountNumber} onChange={(v) => update('senderAccountNumber', v)} error={formErrors.senderAccountNumber} />
+              <TextField label="Beneficiary Account Number" value={form.beneficiaryAccountNumber} onChange={(v) => update('beneficiaryAccountNumber', v)} error={formErrors.beneficiaryAccountNumber} />
               <DateField
                 label="Trx Date"
                 required
@@ -332,9 +424,9 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
                 onChange={(v) => update('trxTime', v)}
               />
 
-              <TextField label="Trx Amount" required value={form.trxAmount} onChange={(v) => update('trxAmount', v)} />
-              <TextField label="Stan" value={form.stan} onChange={(v) => update('stan', v)} />
-              <TextField label="FTDH Aging" required value={form.ftdhAging} onChange={(v) => update('ftdhAging', v)} />
+              <TextField label="Trx Amount" required value={form.trxAmount} onChange={(v) => update('trxAmount', v)} error={formErrors.trxAmount} />
+              <TextField label="Stan" value={form.stan} onChange={(v) => update('stan', v)} error={formErrors.stan} />
+              <TextField label="FTDH Aging" required value={form.ftdhAging} onChange={(v) => update('ftdhAging', v)} error={formErrors.ftdhAging} />
               <div>
                 <p className="text-[16px] font-medium text-[#4C4C4C] mb-2 font-['Jost',sans-serif]">
                   Funds Status (FTDH Portal) <span className="text-[#E20015]">*</span>
@@ -372,7 +464,9 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
               type="button"
               className="h-10 px-6 text-sm bg-[#2064B7] hover:bg-[#1a5399] text-white rounded-lg font-medium"
               onClick={handleCreate}
+              disabled={creating}
             >
+              {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Create
             </Button>
           </div>
@@ -382,28 +476,62 @@ export function FTDHOutwardSourceModal({ open, onOpenChange }) {
   );
 }
 
-export function FTDHOutwardLayeringModal({ open, onOpenChange }) {
+export function FTDHOutwardLayeringModal({ open, onOpenChange, onCaseCreated }) {
   const [form, setForm] = useState({
-    bankName: 'NayaPay',
-    bankFtdhDisputeId: 'Raast-NayaPay-250222',
-    bankFtdhReceivingDateTime: '2025-10-09T17:30',
-    ftdhDisputeId: 'Raast-NayaPay-250222',
-    ftdhLogDateTime: '2025-10-09T17:30',
+    bankName: '',
+    bankFtdhDisputeId: '',
+    bankFtdhReceivingDateTime: '',
+    ftdhDisputeId: '',
+    ftdhLogDateTime: '',
     channel: 'Raast',
-    beneficiary: 'HBL',
-    senderAccountNumber: 'PKa45TMBL000017900357003',
-    beneficiaryAccountNumber: 'PKa45HABB000017900357003',
-    trxDate: '2025-10-09',
-    trxTime: '17:30',
-    trxAmount: 'Pkr 24,700',
-    stan: '654281',
+    beneficiary: '',
+    senderAccountNumber: '',
+    beneficiaryAccountNumber: '',
+    trxDate: '',
+    trxTime: '',
+    trxAmount: '',
+    stan: '',
     ftdhAging: '01',
   });
+  const [creating, setCreating] = useState(false);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-  const handleCreate = () => {
-    toast.success('Outward layering case created successfully');
-    onOpenChange(false);
+
+  const handleCreate = async () => {
+    try {
+      setCreating(true);
+      const amountRaw = String(form.trxAmount).replace(/[^0-9.]/g, '');
+      const payload = {
+        ftdh_type: 'LAYERING',
+        sender_bank_ftdh_dispute_id: form.bankFtdhDisputeId,
+        sender_bank_ftdh_received_at: form.bankFtdhReceivingDateTime ? new Date(form.bankFtdhReceivingDateTime).toISOString() : null,
+        onelink_dispute_id: form.ftdhDisputeId || '',
+        ftdh_log_datetime: form.ftdhLogDateTime ? new Date(form.ftdhLogDateTime).toISOString() : null,
+        ftdh_aging: form.ftdhAging ? parseInt(form.ftdhAging, 10) : null,
+        target_bank: form.beneficiary,
+        target_bank_code: '',
+        target_account: form.beneficiaryAccountNumber,
+        sender_bank: form.bankName,
+        sender_bank_code: '',
+        sender_account: form.senderAccountNumber,
+        transaction_date: form.trxDate,
+        transaction_time: form.trxTime || null,
+        transaction_amount: amountRaw || '0',
+        transaction_currency: 'PKR',
+        transaction_channel: form.channel,
+        stan: form.stan || '',
+      };
+      await ftdhAPI.createOutward(payload);
+      toast.success('Outward layering case created successfully');
+      onOpenChange(false);
+      onCaseCreated?.();
+    } catch (err) {
+      const detail = err?.response?.data;
+      const msg = typeof detail === 'object' ? JSON.stringify(detail) : String(detail || 'Failed to create case');
+      toast.error(msg);
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -477,7 +605,9 @@ export function FTDHOutwardLayeringModal({ open, onOpenChange }) {
               type="button"
               className="h-10 px-6 text-sm bg-[#2064B7] hover:bg-[#1a5399] text-white rounded-lg font-medium"
               onClick={handleCreate}
+              disabled={creating}
             >
+              {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Create
             </Button>
           </div>

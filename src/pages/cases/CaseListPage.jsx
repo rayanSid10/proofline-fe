@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -31,8 +31,7 @@ import {
 } from '@/components/ui/table';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { caseStatuses } from '@/data/mockCases';
-import { getAllCases } from '@/data/caseStorage';
-import { searchCustomers } from '@/data/mockCustomers';
+import ibmbAPI from '@/api/ibmb';
 import { ImportModal } from '@/components/modals/ImportModal';
 import { NoRecordFoundDialog } from '@/components/modals/NoRecordFoundDialog';
 import { SingleAccountDialog } from '@/components/modals/SingleAccountDialog';
@@ -41,6 +40,12 @@ import { MultipleAccountsDialog } from '@/components/modals/MultipleAccountsDial
 // ─── Status → visual config ──────────────────────────────────────────────────
 
 const investigationConfig = {
+  approved: {
+    label: 'Approved',
+    bg: 'bg-[#16A34A]',
+    text: 'text-white',
+    rowBg: 'bg-[#E8F8EF]',
+  },
   in_progress: {
     label: 'Start Investigation',
     bg: 'bg-[#22C55E]',
@@ -79,7 +84,8 @@ export function CaseListPage({ currentRole = 'investigator' }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedRows, setSelectedRows] = useState([]);
   const [page, setPage] = useState(0);
-  const [allCases, setAllCases] = useState(() => getAllCases());
+  const [allCases, setAllCases] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // ─── Modal / Dialog State
   const [importOpen, setImportOpen] = useState(false);
@@ -88,33 +94,48 @@ export function CaseListPage({ currentRole = 'investigator' }) {
   const [multiAccountOpen, setMultiAccountOpen] = useState(false);
   const [foundAccounts, setFoundAccounts] = useState([]);
 
-  const refreshCases = useCallback(() => {
-    setAllCases(getAllCases());
-  }, []);
+  const fetchCases = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const params = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      const { data } = await ibmbAPI.listCases(params);
+      // DRF paginated response: { count, next, previous, results }
+      setAllCases(data.results || data);
+    } catch (err) {
+      console.error('Failed to fetch cases:', err);
+      setAllCases([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [statusFilter]);
 
-  // ─── Table filtering
-  const filteredCases = useMemo(() => {
-    return allCases.filter((c) => {
-      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
-      return true;
-    });
-  }, [allCases, statusFilter]);
+  useEffect(() => {
+    fetchCases();
+  }, [fetchCases]);
+
+  const refreshCases = useCallback(() => {
+    fetchCases();
+  }, [fetchCases]);
+
+  // ─── Table filtering (server already filtered by status)
+  const filteredCases = allCases;
 
   const totalPages = Math.max(1, Math.ceil(filteredCases.length / PAGE_SIZE));
   const pagedCases = filteredCases.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // ─── Search / Lookup Logic ─────────────────────────────────────────────────
-  const handleSearchSubmit = useCallback(() => {
+  const handleSearchSubmit = useCallback(async () => {
     const query = searchQuery.trim();
     if (!query) return;
 
-    // 1) Check dispute database first
+    // 1) Check dispute database first (search in already loaded cases)
     const matchingCase = allCases.find((c) => {
       const cust = c.customer;
       return (
-        cust.cnic?.includes(query) ||
-        cust.account_number?.includes(query) ||
-        cust.card_number?.includes(query)
+        cust?.cnic?.includes(query) ||
+        cust?.account_number?.includes(query) ||
+        cust?.card_number?.includes(query)
       );
     });
 
@@ -125,23 +146,28 @@ export function CaseListPage({ currentRole = 'investigator' }) {
       }
     }
 
-    // 2) Core Banking lookup
-    const customers = searchCustomers(query);
-    if (customers.length === 0) {
-      setNoRecordOpen(true);
-      return;
-    }
+    // 2) Core Banking lookup via API
+    try {
+      const { data: customers } = await ibmbAPI.searchCustomers(query);
+      if (customers.length === 0) {
+        setNoRecordOpen(true);
+        return;
+      }
 
-    const customer = customers[0];
-    const accounts = customer.accounts || [];
-    if (accounts.length === 0) {
+      const customer = customers[0];
+      const accounts = customer.accounts || [];
+      if (accounts.length === 0) {
+        setNoRecordOpen(true);
+      } else if (accounts.length === 1) {
+        setFoundAccounts(accounts);
+        setSingleAccountOpen(true);
+      } else {
+        setFoundAccounts(accounts);
+        setMultiAccountOpen(true);
+      }
+    } catch (err) {
+      console.error('Search failed:', err);
       setNoRecordOpen(true);
-    } else if (accounts.length === 1) {
-      setFoundAccounts(accounts);
-      setSingleAccountOpen(true);
-    } else {
-      setFoundAccounts(accounts);
-      setMultiAccountOpen(true);
     }
   }, [allCases, searchQuery, navigate]);
 
@@ -326,7 +352,26 @@ export function CaseListPage({ currentRole = 'investigator' }) {
                 </TableRow>
               ) : (
                 pagedCases.map((caseItem) => {
-                  const config = investigationConfig[caseItem.investigation_status] || investigationConfig.in_progress;
+                  const draftStatus = caseItem.investigation_draft_status;
+                  const isPendingReviewInvestigation =
+                    draftStatus === 'submitted' ||
+                    caseItem.status === 'pending_review' ||
+                    caseItem.investigation_status === 'pending_review';
+                  const isApprovedInvestigation =
+                    draftStatus === 'approved' ||
+                    caseItem.status === 'approved' ||
+                    caseItem.investigation_status === 'completed';
+                  const canEditCase = !isPendingReviewInvestigation && !isApprovedInvestigation;
+                  let displayStatus = caseItem.investigation_status;
+
+                  if (draftStatus === 'approved') {
+                    displayStatus = 'approved';
+                  } else if (draftStatus === 'rejected') {
+                    // Keep existing "Revision needed" visual chip for rework flow.
+                    displayStatus = 'completed';
+                  }
+
+                  const config = investigationConfig[displayStatus] || investigationConfig.in_progress;
                   return (
                     <TableRow
                       key={caseItem.id}
@@ -346,16 +391,18 @@ export function CaseListPage({ currentRole = 'investigator' }) {
                           >
                             <Eye className="h-4 w-4 text-gray-500" />
                           </button>
-                          <button
-                            className="p-1 rounded hover:bg-gray-100 transition-colors"
-                            title="Edit"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/cases/${caseItem.id}/edit`);
-                            }}
-                          >
-                            <Pencil className="h-4 w-4 text-gray-500" />
-                          </button>
+                          {canEditCase && (
+                            <button
+                              className="p-1 rounded hover:bg-gray-100 transition-colors"
+                              title="Edit"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/cases/${caseItem.id}/edit`);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 text-gray-500" />
+                            </button>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="py-3 text-sm font-medium">

@@ -9,21 +9,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { ROLES } from '@/utils/permissions';
 
-export function Header({ user, onLogout, onRoleChange, currentRole }) {
+export function Header({ user, onLogout }) {
   const initials = user?.name
     ?.split(' ')
     .map((n) => n[0])
     .join('')
     .toUpperCase() || 'U';
+
+  const roleLabel = ROLES.find((r) => r.value === user?.role)?.label || user?.role;
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-4 md:px-6">
@@ -34,21 +30,10 @@ export function Header({ user, onLogout, onRoleChange, currentRole }) {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Role Switcher (Demo Feature) */}
-        <div className="hidden sm:block">
-          <Select value={currentRole} onValueChange={onRoleChange}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Select role" />
-            </SelectTrigger>
-            <SelectContent>
-              {ROLES.map((role) => (
-                <SelectItem key={role.value} value={role.value}>
-                  {role.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Role Badge */}
+        <Badge variant="secondary" className="hidden sm:inline-flex">
+          {roleLabel}
+        </Badge>
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative">

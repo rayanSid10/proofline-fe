@@ -310,9 +310,9 @@ export function DashboardPage({ currentRole = 'investigator' }) {
               </Link>
             </Button>
             <Button variant="outline" className="h-20 flex-col" asChild>
-              <Link to="/cases/import">
+              <Link to="/cases">
                 <TrendingUp className="h-6 w-6 mb-2" />
-                Import Cases
+                Open Cases
               </Link>
             </Button>
             <Button variant="outline" className="h-20 flex-col" asChild>

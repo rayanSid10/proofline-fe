@@ -721,7 +721,21 @@ export const generateDisputeId = () => {
 // Helper function to format date-time
 export const formatDateTime = (date) => {
   if (!date) return '';
+
+  if (typeof date === 'string') {
+    const raw = date.trim();
+
+    // Date-only payload (YYYY-MM-DD) should not be converted to local time,
+    // otherwise browsers may render a fake timezone-shifted hour (e.g. 05:00).
+    const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return `${day}/${month}/${year}`;
+    }
+  }
+
   const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
