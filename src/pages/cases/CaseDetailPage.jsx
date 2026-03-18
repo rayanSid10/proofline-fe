@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Pencil,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,8 +21,8 @@ import {
 } from '@/components/ui/select';
 import { DataMasker } from '@/components/shared/DataMasker';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { fraudTypes, channels } from '@/data/mockCases';
-import { getAllCases, getInvestigatorPool, upsertCase } from '@/data/caseStorage';
+import { fraudTypes } from '@/data/mockCases';
+import { ibmbAPI } from '@/api/ibmb';
 import { toast } from 'sonner';
 
 function formatCurrency(amount) {
@@ -37,10 +38,73 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const caseData = getAllCases().find((c) => c.id === parseInt(id));
+  // ─── API-driven state ──────────────────────────────────────────────
+  const [caseData, setCaseData] = useState(null);
+  const [investigators, setInvestigators] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [currentAssignee, setCurrentAssignee] = useState(null);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [caseRes, invRes] = await Promise.all([
+          ibmbAPI.getCase(id),
+          ibmbAPI.listInvestigators(),
+        ]);
+        if (cancelled) return;
+        setCaseData(caseRes.data);
+        setInvestigators(invRes.data);
+      } catch (err) {
+        if (cancelled) return;
+        if (err.response?.status === 404) {
+          setError('not_found');
+        } else {
+          setError('error');
+          console.error('Failed to load case:', err);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchData();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Sync assignee state when caseData or investigators load
+  useEffect(() => {
+    if (caseData?.assigned_to) {
+      const assignee = investigators.find((io) => io.id === caseData.assigned_to) || {
+        id: caseData.assigned_to,
+        name: caseData.assigned_to_name || 'Unknown',
+      };
+      setCurrentAssignee(assignee);
+      setSelectedAssigneeId(String(assignee.id));
+    } else if (investigators.length > 0) {
+      setSelectedAssigneeId(String(investigators[0].id));
+    }
+  }, [caseData, investigators]);
+
   const isSupervisor = currentRole === 'supervisor' || currentRole === 'admin';
 
-  if (!caseData) {
+  // ─── Loading state ─────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+        <p className="text-muted-foreground">Loading case…</p>
+      </div>
+    );
+  }
+
+  // ─── Not found / error state ───────────────────────────────────────
+  if (error || !caseData) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
@@ -58,42 +122,53 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
   const fraudTypeLabel =
     fraudTypes.find((t) => t.value === caseData.fraud_type)?.label ||
     caseData.fraud_type;
-  const investigators = useMemo(() => getInvestigatorPool(), []);
-  const [currentAssignee, setCurrentAssignee] = useState(caseData.assigned_to || null);
-  const [selectedAssigneeId, setSelectedAssigneeId] = useState(
-    String(caseData.assigned_to?.id ?? investigators[0]?.id ?? '')
-  );
   const isSubmittedForSupervisor = ['pending_review', 'approved', 'rejected', 'closed'].includes(caseData.status);
+  const isRejectedDraft = caseData.investigation_draft_status === 'rejected';
   const isAssignedInvestigator =
     !isSupervisor &&
     currentRole === 'investigator' &&
-    String(currentUser?.name || '').trim().toLowerCase() ===
-      String(currentAssignee?.name || '').trim().toLowerCase();
+    currentUser?.id != null &&
+    currentAssignee?.id != null &&
+    String(currentUser.id) === String(currentAssignee.id);
   const canInvestigatorStart = isSupervisor || currentRole !== 'investigator' || isAssignedInvestigator;
+  const isApprovedInvestigation =
+    caseData.investigation_draft_status === 'approved' ||
+    caseData.status === 'approved' ||
+    caseData.investigation_status === 'completed';
+  const isPendingReviewInvestigation =
+    caseData.investigation_draft_status === 'submitted' ||
+    caseData.status === 'pending_review' ||
+    caseData.investigation_status === 'pending_review';
+  const canEditCase = !isApprovedInvestigation && !isPendingReviewInvestigation;
   const investigationPath = isSupervisor
     ? (isSubmittedForSupervisor ? `/cases/${id}/supervisor-report` : `/cases/${id}`)
     : `/cases/${id}/investigation`;
+  const hasInvestigation = caseData.has_investigation;
+  const displayStatus = isRejectedDraft ? 'rejected' : (!hasInvestigation ? 'open' : caseData.status);
   const primaryActionLabel = isSupervisor
     ? (isSubmittedForSupervisor ? 'View Investigation' : 'Awaiting Submission')
     : !canInvestigatorStart
       ? 'Assigned to Another IO'
-    : caseData.status === 'open'
+    : isRejectedDraft
+      ? 'Revise Investigation'
+    : (!hasInvestigation || caseData.investigation_status === 'not_started')
       ? 'Start Investigation'
       : 'View Investigation';
 
-  const handleReassignInvestigator = () => {
+  const handleReassignInvestigator = async () => {
     const nextAssignee = investigators.find((io) => String(io.id) === String(selectedAssigneeId));
     if (!nextAssignee) return;
 
-    upsertCase({
-      ...caseData,
-      assigned_to: nextAssignee,
-    });
-    setCurrentAssignee(nextAssignee);
-
-    toast.success('Assignment updated', {
-      description: `Case reassigned to ${nextAssignee.name}`,
-    });
+    try {
+      await ibmbAPI.patchCase(id, { assigned_to: nextAssignee.id });
+      setCurrentAssignee(nextAssignee);
+      toast.success('Assignment updated', {
+        description: `Case reassigned to ${nextAssignee.name}`,
+      });
+    } catch (err) {
+      console.error('Failed to reassign:', err);
+      toast.error('Failed to reassign case');
+    }
   };
 
   const showSupervisorTransactionActions = false;
@@ -102,10 +177,24 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
     const branchName = txn.branch_name || txn.branch || caseData.branch_name || (caseData.branch_code ? `Branch ${caseData.branch_code}` : '—');
     const ftdhId = txn.ftdh_id || caseData.ftdh_id || '—';
 
+    // Safe date formatting — manual transactions may have empty/invalid dates
+    let formattedDate = '—';
+    if (txn.transaction_date) {
+      try {
+        const d = new Date(txn.transaction_date);
+        if (!isNaN(d.getTime())) {
+          formattedDate = format(d, 'dd/MM/yyyy');
+        }
+      } catch {
+        formattedDate = txn.transaction_date;
+      }
+    }
+
     return {
       ...txn,
       branchName,
       ftdhId,
+      formattedDate,
     };
   });
 
@@ -130,7 +219,7 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                 <p className="text-sm font-medium uppercase tracking-wide">
                   {caseData.customer.name}
                 </p>
-                <StatusBadge status={caseData.status} />
+                <StatusBadge status={displayStatus} />
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -149,7 +238,7 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                   )}
                   {primaryActionLabel}
                 </Button>
-                {!isSupervisor && (
+                {!isSupervisor && canEditCase && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -200,7 +289,9 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                   {isSupervisor ? 'Card Number' : 'Account Number'}
                 </p>
                 <DataMasker
-                  value={isSupervisor ? caseData.customer.card_number : caseData.customer.account_number}
+                  value={isSupervisor
+                    ? (caseData.customer.card_number || caseData.customer.accounts?.[0]?.card_number)
+                    : (caseData.customer.account_number || caseData.customer.accounts?.[0]?.account_number)}
                   type={isSupervisor ? 'card' : 'account'}
                 />
               </div>
@@ -219,6 +310,10 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
               <div>
                 <p className="text-xs text-muted-foreground">Reference Number</p>
                 <p className="font-medium text-[#4c4c4c]">{caseData.reference_number || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Dispute Channel</p>
+                <p className="font-medium text-[#4c4c4c]">{caseData.dispute_channel || '—'}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Fraud Type</p>
@@ -265,7 +360,7 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                         {isSupervisor ? (
                           <>
                             <td className="px-4 py-3 align-top">
-                              <p>{format(new Date(txn.transaction_date), 'dd/MM/yyyy')}</p>
+                              <p>{txn.formattedDate}</p>
                               <p className="text-xs text-muted-foreground">
                                 {txn.transaction_time?.slice(0, 5) || '--:--'}
                               </p>
@@ -281,14 +376,14 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                             </td>
                             <td className="px-4 py-3 align-top">
                               <p>{txn.branchName}</p>
-                              <p className="text-xs text-muted-foreground">{caseData.branch_code || '—'}</p>
+                              <p className="text-xs text-muted-foreground">{txn.branch_code || caseData.branch_code || '—'}</p>
                             </td>
                           </>
                         ) : (
                           <>
                             <td className="px-4 py-3 align-top">
                               <p>{txn.branchName}</p>
-                              <p className="text-xs text-muted-foreground">{caseData.branch_code || '—'}</p>
+                              <p className="text-xs text-muted-foreground">{txn.branch_code || caseData.branch_code || '—'}</p>
                             </td>
                             <td className="px-4 py-3 align-top font-medium text-[#2592ff]">
                               {formatCurrency(txn.disputed_amount)}
@@ -300,7 +395,7 @@ export function CaseDetailPage({ currentRole = 'investigator', currentUser = nul
                               </p>
                             </td>
                             <td className="px-4 py-3 align-top">
-                              <p>{format(new Date(txn.transaction_date), 'dd/MM/yyyy')}</p>
+                              <p>{txn.formattedDate}</p>
                               <p className="text-xs text-muted-foreground">
                                 {txn.transaction_time?.slice(0, 5) || '--:--'}
                               </p>

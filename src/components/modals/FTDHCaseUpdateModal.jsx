@@ -155,23 +155,74 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
   const [formData, setFormData] = useState(null);
   const [initialFormData, setInitialFormData] = useState(null);
   const [stanceFiles, setStanceFiles] = useState([]);
+  const [snapshotAttachedFiles, setSnapshotAttachedFiles] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+
+  // ── Merge snapshot overrides onto system-prefilled case data ──────────
+  const applySnapshotOverrides = useCallback((loaded) => {
+    const snapshot = loaded.updateSnapshot;
+    if (!snapshot) return loaded;
+
+    const merged = JSON.parse(JSON.stringify(loaded));
+
+    // Stage 1 overrides → actionsTaken
+    if (snapshot.stage1 && Object.keys(snapshot.stage1).length > 0 && merged.actionsTaken) {
+      const s1 = snapshot.stage1;
+      for (const key of Object.keys(s1)) {
+        if (s1[key] !== undefined && s1[key] !== null) {
+          merged.actionsTaken[key] = s1[key];
+        }
+      }
+    }
+
+    // Stage 2 overrides → channelActivation
+    if (snapshot.stage2 && Object.keys(snapshot.stage2).length > 0) {
+      if (!merged.channelActivation) merged.channelActivation = {};
+      const s2 = snapshot.stage2;
+      for (const key of Object.keys(s2)) {
+        if (s2[key] !== undefined && s2[key] !== null) {
+          merged.channelActivation[key] = s2[key];
+        }
+      }
+    }
+
+    // Stage 3 overrides → branchCommunication.stageData[substage]
+    if (snapshot.stage3 && Object.keys(snapshot.stage3).length > 0 && merged.branchCommunication?.stageData) {
+      for (const [substage, fields] of Object.entries(snapshot.stage3)) {
+        if (!merged.branchCommunication.stageData[substage]) {
+          merged.branchCommunication.stageData[substage] = {};
+        }
+        for (const key of Object.keys(fields)) {
+          if (fields[key] !== undefined && fields[key] !== null) {
+            merged.branchCommunication.stageData[substage][key] = fields[key];
+          }
+        }
+      }
+    }
+
+    // Stage 4 overrides → memberBankCommunication
+    if (snapshot.stage4 && Object.keys(snapshot.stage4).length > 0 && merged.memberBankCommunication) {
+      const s4 = snapshot.stage4;
+      for (const key of Object.keys(s4)) {
+        if (s4[key] !== undefined && s4[key] !== null) {
+          merged.memberBankCommunication[key] = s4[key];
+        }
+      }
+    }
+
+    if (snapshot.updatedAt) {
+      merged._snapshotUpdatedAt = snapshot.updatedAt;
+    }
+
+    return merged;
+  }, []);
 
   useEffect(() => {
     if (!open || !caseData) return;
 
-    // If caseData already has full detail (actionsTaken present), use it directly.
-    if (caseData.actionsTaken) {
-      const loaded = JSON.parse(JSON.stringify(caseData, (key, value) => {
-        if (value instanceof Date) return value.toISOString();
-        return value;
-      }));
-      setFormData(loaded);
-      setInitialFormData(loaded);
-      setStanceFiles([]);
-      return;
-    }
-
-    // List-level data — fetch full detail from API.
+    // Always fetch fresh detail from API to get the latest snapshot.
+    // caseData.id is always available (from list or detail page).
     let cancelled = false;
     (async () => {
       try {
@@ -181,29 +232,35 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
             if (value instanceof Date) return value.toISOString();
             return value;
           }));
-          setFormData(loaded);
-          setInitialFormData(loaded);
+          const merged = applySnapshotOverrides(loaded);
+          setFormData(merged);
+          setInitialFormData(merged);
           setStanceFiles([]);
+          setSnapshotAttachedFiles(loaded.updateSnapshot?.attachments || []);
+          setLastSavedAt(merged._snapshotUpdatedAt || null);
         }
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to fetch case detail for update modal:', err);
-          // Fallback to whatever we have
+          // Fallback to whatever caseData we have
           const loaded = JSON.parse(JSON.stringify(caseData, (key, value) => {
             if (value instanceof Date) return value.toISOString();
             return value;
           }));
-          setFormData(loaded);
-          setInitialFormData(loaded);
+          const merged = applySnapshotOverrides(loaded);
+          setFormData(merged);
+          setInitialFormData(merged);
           setStanceFiles([]);
+          setSnapshotAttachedFiles(loaded.updateSnapshot?.attachments || []);
+          setLastSavedAt(merged._snapshotUpdatedAt || null);
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [open, caseData]);
+  }, [open, caseData, applySnapshotOverrides]);
 
   useEffect(() => {
-    if (!open) { setFormData(null); setInitialFormData(null); setStanceFiles([]); }
+    if (!open) { setFormData(null); setInitialFormData(null); setStanceFiles([]); setSnapshotAttachedFiles([]); setIsSaving(false); setLastSavedAt(null); }
   }, [open]);
 
   const handleStanceFileSelect = useCallback((e) => {
@@ -256,10 +313,115 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
     }));
   }, []);
 
-  const handleUpdate = useCallback(() => {
-    toast.success('FTDH case updated successfully');
-    onCaseUpdated?.(formData);
-  }, [formData, onCaseUpdated]);
+  // ── Extract officer-editable fields for snapshot save ──────────────────
+  const buildSnapshotPayload = useCallback(() => {
+    const act = formData?.actionsTaken || {};
+    const ca = formData?.channelActivation || {};
+    const bc = formData?.branchCommunication || {};
+    const mb = formData?.memberBankCommunication || {};
+    const stageData = bc?.stageData || {};
+
+    // Preserve booleans & numbers as-is; only stringify plain strings
+    const snapshotVal = (v) => {
+      if (v == null) return '';
+      if (typeof v === 'boolean' || typeof v === 'number') return v;
+      return String(v);
+    };
+
+    // Stage 1 — officer-editable fields from actionsTaken
+    const stage1 = {};
+    const s1Keys = ['actionTaken', 'invalidReason', 'fundsStatus', 'fundsAvailabilityStatus', 'fundsOnHold', 'channelBlockingDate', 'lienMarked', 'lienMarkDate', 'recoveryAttempted', 'recoveryAmount', 'recoveryDate'];
+    for (const k of s1Keys) {
+      if (act[k] !== undefined) stage1[k] = snapshotVal(act[k]);
+    }
+
+    // Stage 2 — officer-editable fields from channelActivation
+    const stage2 = {};
+    const s2Keys = ['profileReview', 'accountOpeningDate', 'accountType', 'accountActivity', 'highlighted', 'referenceFtdhId', 'finalDecision', 'decisionDate', 'decisionRationale'];
+    for (const k of s2Keys) {
+      if (ca[k] !== undefined) stage2[k] = snapshotVal(ca[k]);
+    }
+
+    // Stage 3 — per-substage fields from branchCommunication.stageData
+    const stage3 = {};
+    const s3Keys = ['stanceReceived', 'stanceReceivedDate', 'stanceReviewed', 'stanceReviewedDate', 'stanceAcceptable', 'stanceAcceptableDate', 'stanceRevertedDate'];
+    for (const [substage, fields] of Object.entries(stageData)) {
+      if (!fields || typeof fields !== 'object') continue;
+      const sub = {};
+      for (const k of s3Keys) {
+        if (fields[k] !== undefined) sub[k] = snapshotVal(fields[k]);
+      }
+      if (Object.keys(sub).length > 0) stage3[substage] = sub;
+    }
+
+    // Stage 4 — officer-editable fields from memberBankCommunication
+    const stage4 = {};
+    const s4Keys = ['feedbackReceived', 'feedbackReceiveDate', 'feedbackByMemberBank'];
+    for (const k of s4Keys) {
+      if (mb[k] !== undefined) stage4[k] = snapshotVal(mb[k]);
+    }
+
+    return { stage1, stage2, stage3, stage4 };
+  }, [formData]);
+
+  const handleDeleteSnapshotAttachment = useCallback(async (attachmentId) => {
+    if (!formData?.id) return;
+    try {
+      await ftdhAPI.deleteSnapshotAttachment(formData.id, attachmentId);
+      setSnapshotAttachedFiles((prev) => prev.filter((a) => a.id !== attachmentId));
+      toast.success('Attachment removed');
+    } catch (err) {
+      console.error('Failed to delete snapshot attachment:', err);
+      toast.error('Failed to remove attachment.');
+    }
+  }, [formData]);
+
+  const handleSave = useCallback(async () => {
+    if (!formData?.id) return;
+    setIsSaving(true);
+    try {
+      // 1) Save JSON field overrides
+      const payload = buildSnapshotPayload();
+      const res = await ftdhAPI.patchUpdateSnapshot(formData.id, payload);
+      const saved = res.data || {};
+
+      // 2) Upload any new stance files the officer selected
+      let latestAttachments = saved.attachments || snapshotAttachedFiles;
+      if (stanceFiles.length > 0) {
+        try {
+          const uploadRes = await ftdhAPI.uploadSnapshotFiles(formData.id, stanceFiles, 'stage3');
+          latestAttachments = uploadRes.data?.attachments || latestAttachments;
+          setStanceFiles([]); // clear local File objects — they're now persisted
+        } catch (uploadErr) {
+          console.error('File upload failed:', uploadErr);
+          toast.error('Some files failed to upload. Your form data was saved.');
+        }
+      }
+
+      setSnapshotAttachedFiles(latestAttachments);
+      setLastSavedAt(saved.updatedAt || new Date().toISOString());
+
+      // Sync formData.updateSnapshot so the in-memory state matches the DB.
+      const snapshotSync = {
+        stage1: saved.stage1 || {},
+        stage2: saved.stage2 || {},
+        stage3: saved.stage3 || {},
+        stage4: saved.stage4 || {},
+        attachments: latestAttachments,
+        updatedAt: saved.updatedAt || null,
+      };
+      setFormData((prev) => ({ ...prev, updateSnapshot: snapshotSync }));
+
+      toast.success('Form saved successfully');
+      // Pass the latest formData (with updated snapshot) to parent
+      onCaseUpdated?.({ ...formData, updateSnapshot: snapshotSync });
+    } catch (err) {
+      console.error('Failed to save update snapshot:', err);
+      toast.error('Failed to save form. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [formData, buildSnapshotPayload, onCaseUpdated, stanceFiles, snapshotAttachedFiles]);
 
   if (!formData) return null;
 
@@ -270,7 +432,7 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
     accountActivity: 'Satisfactory',
     highlighted: 'Yes',
     referenceFtdhId: '',
-    finalDecision: 'ADC Channel Activated', 
+    finalDecision: null, 
     decisionDate: formData.updatedAt,
     decisionRationale: ''
   } } = formData;
@@ -312,12 +474,17 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
   const stage3Level = getStage3Level();
 
   // Determine if stance is Yes at current level
+  // Read from stageData (snapshot-friendly), fall back to legacy top-level branchCommunication fields
+  const stanceLevelToSubstage = { initial: 'initial', '1st': 'reminder_1', '2nd': 'reminder_2', '3rd': 'reminder_3', bc: 'business_consideration' };
   const getStanceAtLevel = () => {
-    if (stage3Level === 'initial') return bc.customerStanceInitial;
-    if (stage3Level === '1st') return bc.customerStance1stReminder;
-    if (stage3Level === '2nd') return bc.customerStance2ndReminder;
-    if (stage3Level === '3rd') return bc.customerStance3rdReminder;
-    if (stage3Level === 'bc') return bc.stageData?.business_consideration?.stanceReceived || null;
+    const substage = stanceLevelToSubstage[stage3Level];
+    const fromStageData = bc.stageData?.[substage]?.stanceReceived;
+    if (fromStageData) return fromStageData;
+    // Legacy fallback — system-prefilled top-level keys
+    if (stage3Level === 'initial') return bc.customerStanceInitial || null;
+    if (stage3Level === '1st') return bc.customerStance1stReminder || null;
+    if (stage3Level === '2nd') return bc.customerStance2ndReminder || null;
+    if (stage3Level === '3rd') return bc.customerStance3rdReminder || null;
     return null;
   };
 
@@ -335,11 +502,8 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
 
   // ─── Stance change handler ────────────────────────────────────────────
   const handleStanceChange = (value) => {
-    if (stage3Level === 'initial') updateBranch('customerStanceInitial', value);
-    else if (stage3Level === '1st') updateBranch('customerStance1stReminder', value);
-    else if (stage3Level === '2nd') updateBranch('customerStance2ndReminder', value);
-    else if (stage3Level === '3rd') updateBranch('customerStance3rdReminder', value);
-    else if (stage3Level === 'bc') updateStageData('business_consideration', 'stanceReceived', value);
+    const substage = stanceLevelToSubstage[stage3Level] || 'initial';
+    updateStageData(substage, 'stanceReceived', value);
   };
 
   return (
@@ -586,7 +750,7 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                   <FieldLabel required>Lien Mark</FieldLabel>
                   <RadioPair
                     name="lienMarked"
-                    value={act.lienMarked === true ? 'Yes' : act.lienMarked === false ? 'No' : null}
+                    value={act.lienMarked === true || act.lienMarked === 'true' ? 'Yes' : act.lienMarked === false || act.lienMarked === 'false' ? 'No' : null}
                     onChange={(v) => updateAction('lienMarked', v === 'Yes')}
                     options={[
                       { value: 'Yes', label: 'Yes' },
@@ -703,7 +867,7 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                 <FieldLabel required>Final Decision</FieldLabel>
                 <RadioPair
                   name="finalDecision"
-                  value={ca.finalDecision || 'ADC Channel Activated'}
+                  value={ca.finalDecision || ''}
                   onChange={(v) => updateChannelActivation('finalDecision', v)}
                   options={[
                     { value: 'ADC Channel Activated', label: 'ADC Channel Activated' },
@@ -781,8 +945,6 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                           { value: 'Yes', label: 'Yes' },
                           { value: 'No', label: 'No' },
                         ]}
-                        disabled={stageInfo.stanceAcceptable === 'Yes'}
-                        disabled={lockByPrefilledAccept}
                       />
                     </div>
 
@@ -915,6 +1077,18 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                             ))}
                           </div>
                         )}
+                        {snapshotAttachedFiles.filter((a) => a.stageKey === 'stage3').length > 0 && (
+                          <div className="mb-2 space-y-1">
+                            {snapshotAttachedFiles.filter((a) => a.stageKey === 'stage3').map((a) => (
+                              <div key={a.id} className="flex items-center gap-1.5 text-xs text-[#2064B7]">
+                                <a href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:underline truncate">
+                                  <span>📎</span> {a.originalName}
+                                </a>
+                                <button type="button" onClick={() => handleDeleteSnapshotAttachment(a.id)} className="ml-1 text-red-400 hover:text-red-600 text-xs font-bold" title="Remove">✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {stanceFiles.length > 0 && (
                           <div className="mb-2 space-y-1">
                             {stanceFiles.map((f, idx) => (
@@ -995,6 +1169,18 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                               <a key={f.id} href={f.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-[#2064B7] hover:underline truncate">
                                 <span>📎</span> {f.original_name}
                               </a>
+                            ))}
+                          </div>
+                        )}
+                        {snapshotAttachedFiles.filter((a) => a.stageKey === 'stage3').length > 0 && (
+                          <div className="mb-2 space-y-1">
+                            {snapshotAttachedFiles.filter((a) => a.stageKey === 'stage3').map((a) => (
+                              <div key={a.id} className="flex items-center gap-1.5 text-xs text-[#2064B7]">
+                                <a href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:underline truncate">
+                                  <span>📎</span> {a.originalName}
+                                </a>
+                                <button type="button" onClick={() => handleDeleteSnapshotAttachment(a.id)} className="ml-1 text-red-400 hover:text-red-600 text-xs font-bold" title="Remove">✕</button>
+                              </div>
                             ))}
                           </div>
                         )}
@@ -1205,15 +1391,15 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
                     />
                   )}
 
-                  {/* Feedback = No → Next Reminder To Member Bank */}
+                  {/* Feedback = No → Next Reminder To Member Bank (read-only, system-managed) */}
                   {currentFeedback === 'No' && nextReminder && (
                     <ReminderDateField
                       label={nextReminder.label}
                       sideText="To Member Bank"
                       subText={nextReminder.subText}
                       value={toDatetimeLocal(mb[nextReminder.field])}
-                      disabled={!!nextReminder.disabled}
-                      onChange={(e) => updateMemberBank(nextReminder.field, e.target.value)}
+                      disabled
+                      onChange={() => {}}
                     />
                   )}
                 </div>
@@ -1276,14 +1462,27 @@ export function FTDHCaseUpdateModal({ open, onOpenChange, caseData, onCaseUpdate
 
         </div>
 
-        {/* Footer — Generate Report */}
-        <div className="px-8 py-4 border-t border-gray-100 flex items-center justify-end shrink-0">
-          <Button
-            className="h-10 px-6 text-sm bg-[#2064B7] hover:bg-[#1a5399] text-white rounded-lg font-medium"
-            onClick={() => onGenerateReport?.(formData)}
-          >
-            Generate report
-          </Button>
+        {/* Footer — Save + Generate Report */}
+        <div className="px-8 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+          <div className="text-xs text-[#AFAFAF]">
+            {lastSavedAt ? `Last saved: ${new Date(lastSavedAt).toLocaleString()}` : ''}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              className="h-10 px-6 text-sm rounded-lg font-medium border-[#2064B7] text-[#2064B7] hover:bg-[#F0F6FF]"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving…' : 'Save'}
+            </Button>
+            <Button
+              className="h-10 px-6 text-sm bg-[#2064B7] hover:bg-[#1a5399] text-white rounded-lg font-medium"
+              onClick={() => onGenerateReport?.(formData)}
+            >
+              Generate report
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

@@ -11,7 +11,6 @@ import {
   Scale,
   Clock,
   BarChart3,
-  Users,
   LogOut,
   Menu,
 } from 'lucide-react';
@@ -26,7 +25,6 @@ import {
   canAccessIBMB,
   canAccessFTDH,
   isBranchUser,
-  isAdmin,
 } from '@/utils/permissions';
 
 /**
@@ -107,7 +105,7 @@ function getMenuItems(role) {
     });
   }
 
-  if (isBranchUser(role)) {
+  if (isBranchUser(role) || canAccessFTDH(role)) {
     items.push({
       title: 'FTDH Branch',
       icon: Building2,
@@ -120,14 +118,6 @@ function getMenuItems(role) {
     icon: BarChart3,
     path: '/reports',
   });
-
-  if (isAdmin(role)) {
-    items.push({
-      title: 'User Management',
-      icon: Users,
-      path: '/users',
-    });
-  }
 
   return items;
 }

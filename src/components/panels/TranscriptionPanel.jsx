@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Headphones, Upload, Mic, Play, Pause, Loader2, FileAudio, Trash2, X } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Headphones, Upload, Mic, Play, Pause, Loader2, FileAudio, Trash2, X, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import { getRandomTranscription } from '@/data/mockTranscriptions';
+import { uploadAudio, getTranscriptionStatus, deleteTranscriptionAudio } from '@/api/transcription';
 
 const FILE_TYPE_OPTIONS = [
   { value: 'cx_call', label: 'CX Call' },
@@ -22,12 +22,66 @@ const FILE_TYPE_COLORS = {
   io_call: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };
 
+const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
+
 // ─── Audio Card ────────────────────────────────────────────────────────────────
-function AudioCard({ file, onRemove }) {
+function AudioCard({ file, onRemove, onUpdate, ownerContext }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [transcription, setTranscription] = useState(null);
+  const [isTranscribing, setIsTranscribing] = useState(
+    Boolean(file.backendId && IN_PROGRESS_STATUSES.has(file.backendStatus) && !file.transcriptionText)
+  );
+  const [transcription, setTranscription] = useState(file.transcriptionText || null);
+  const [error, setError] = useState(null);
   const audioRef = useRef(null);
+  const pollRef = useRef(null);
+
+  // Poll for transcription status
+  const startPolling = useCallback((audioId) => {
+    // Clear any existing poll
+    if (pollRef.current) clearInterval(pollRef.current);
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const result = await getTranscriptionStatus(audioId);
+
+        if (result.status === 'completed' && result.transcription) {
+          const text = result.transcription.text;
+          setTranscription(text);
+          setIsTranscribing(false);
+          // Persist on file object so it survives sidebar close/reopen
+          onUpdate(file.id, { transcriptionText: text, backendStatus: 'completed' });
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        } else if (result.status === 'failed') {
+          const errMsg = result.error_detail || 'Transcription failed.';
+          setError(errMsg);
+          setIsTranscribing(false);
+          onUpdate(file.id, { backendStatus: 'failed' });
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        } else if (IN_PROGRESS_STATUSES.has(result.status)) {
+          // Keep parent state in sync so rerenders don't accidentally stop polling.
+          onUpdate(file.id, { backendStatus: result.status });
+        }
+        // else: still processing — keep polling
+      } catch {
+        setError('Failed to check transcription status.');
+        setIsTranscribing(false);
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000); // Poll every 4 seconds
+  }, [file.id, onUpdate]);
+
+  // Resume polling on mount if file was already submitted and still processing
+  useEffect(() => {
+    if (file.backendId && IN_PROGRESS_STATUSES.has(file.backendStatus) && !file.transcriptionText) {
+      startPolling(file.backendId);
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [file.backendId, file.backendStatus, file.transcriptionText, startPolling]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -39,14 +93,32 @@ function AudioCard({ file, onRemove }) {
     setIsPlaying(!isPlaying);
   };
 
-  const handleTranscribe = () => {
+  const handleTranscribe = async () => {
+    if (!file.rawFile) {
+      setError('Original file is not available in this session. Please upload again to regenerate transcription.');
+      return;
+    }
+
     setIsTranscribing(true);
-    // Simulate 2-3s processing delay, then show mock transcription
-    const delay = 2000 + Math.random() * 1000;
-    setTimeout(() => {
-      setTranscription(getRandomTranscription());
+    setError(null);
+    try {
+      const result = await uploadAudio(file.rawFile, file.type, ownerContext);
+      // Persist backend ID on file object
+      onUpdate(file.id, { backendId: result.id, backendStatus: result.status });
+
+      if (result.status === 'failed') {
+        setError(result.error_detail || 'Submission to transcription service failed.');
+        setIsTranscribing(false);
+        return;
+      }
+
+      // Start polling for result
+      startPolling(result.id);
+    } catch (err) {
+      const detail = err.response?.data?.detail || err.message || 'Upload failed.';
+      setError(detail);
       setIsTranscribing(false);
-    }, delay);
+    }
   };
 
   return (
@@ -96,7 +168,7 @@ function AudioCard({ file, onRemove }) {
         </div>
 
         {/* Transcribe Button */}
-        {!transcription && (
+        {!transcription && !error && (
           <Button
             size="sm"
             variant="outline"
@@ -118,6 +190,22 @@ function AudioCard({ file, onRemove }) {
           </Button>
         )}
 
+        {/* Error State */}
+        {error && (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[12px] text-red-700">{error}</p>
+              <button
+                onClick={() => { setError(null); }}
+                className="text-[11px] text-red-500 underline mt-1"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Transcription Text */}
         {transcription && (
           <div className="space-y-1.5">
@@ -135,8 +223,7 @@ function AudioCard({ file, onRemove }) {
 }
 
 // ─── Main TranscriptionPanel ───────────────────────────────────────────────────
-export function TranscriptionPanel({ open, onOpenChange }) {
-  const [audioFiles, setAudioFiles] = useState([]);
+export function TranscriptionPanel({ open, onOpenChange, audioFiles, setAudioFiles, ownerContext = null }) {
   const [selectedType, setSelectedType] = useState('cx_call');
   const fileInputRef = useRef(null);
 
@@ -149,15 +236,32 @@ export function TranscriptionPanel({ open, onOpenChange }) {
       size: `${Math.round(file.size / 1024)} KB`,
       type: selectedType,
       url: URL.createObjectURL(file),
+      rawFile: file,              // keep raw File for backend upload
+      backendId: null,            // set after upload API returns
+      backendStatus: null,
+      transcriptionText: null,    // persisted transcription text
       uploadedAt: new Date(),
     };
     setAudioFiles(prev => [newFile, ...prev]);
     e.target.value = '';
   };
 
-  const removeFile = (id) => {
+  const removeFile = async (id) => {
+    const target = audioFiles.find(f => f.id === id);
+    if (target?.backendId) {
+      try {
+        await deleteTranscriptionAudio(target.backendId);
+      } catch {
+        return;
+      }
+    }
     setAudioFiles(prev => prev.filter(f => f.id !== id));
   };
+
+  // Update a file's properties (called by AudioCard to persist state)
+  const updateFile = useCallback((id, updates) => {
+    setAudioFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
+  }, [setAudioFiles]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -211,12 +315,12 @@ export function TranscriptionPanel({ open, onOpenChange }) {
           >
             <Upload className="w-5 h-5 text-gray-400" />
             <span className="text-[12px] text-gray-500">Click to upload audio file</span>
-            <span className="text-[10px] text-gray-400">.mp3, .wav, .m4a</span>
+            <span className="text-[10px] text-gray-400">.mp3, .wav</span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".mp3,.wav,.m4a"
+            accept=".mp3,.wav"
             onChange={handleFileUpload}
             className="hidden"
           />
@@ -234,7 +338,13 @@ export function TranscriptionPanel({ open, onOpenChange }) {
             </div>
           ) : (
             audioFiles.map(file => (
-              <AudioCard key={file.id} file={file} onRemove={removeFile} />
+              <AudioCard
+                key={file.id}
+                file={file}
+                onRemove={removeFile}
+                onUpdate={updateFile}
+                ownerContext={ownerContext}
+              />
             ))
           )}
         </div>

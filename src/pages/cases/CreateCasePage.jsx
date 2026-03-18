@@ -59,6 +59,7 @@ import { cn } from '@/lib/utils';
 import { searchCustomers, getTransactionsForAccount } from '@/data/mockCustomers';
 import { fraudTypes } from '@/data/mockCases';
 import { addImportedCases, assignNextInvestigator, getAllCases, upsertCase } from '@/data/caseStorage';
+import ibmbAPI from '@/api/ibmb';
 
 const steps = [
   { id: 1, title: 'Select Transactions', icon: CreditCard },
@@ -75,6 +76,11 @@ const caseReceivedChannelOptions = [
   { value: 'LEA / BMP / Regulator', label: 'LEA / BMP / Regulator' },
   { value: 'Human Resource', label: 'Human Resource' },
   { value: 'Whistle Blow', label: 'Whistle Blow' },
+];
+
+const disputeChannelOptions = [
+  { value: 'Internet Banking', label: 'Internet Banking (IB)' },
+  { value: 'Mobile Banking', label: 'Mobile Banking (MB)' },
 ];
 
 function formatCurrency(amount) {
@@ -273,13 +279,12 @@ function AccountTransactionSection({
 export function CreateCasePage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const editCaseId = id ? parseInt(id, 10) : null;
-  const isEditMode = Number.isFinite(editCaseId);
-  const caseToEdit = isEditMode
-    ? getAllCases().find((c) => Number(c.id) === editCaseId)
-    : null;
+  const editCaseId = id || null;
+  const isEditMode = !!editCaseId;
+  const [caseToEdit, setCaseToEdit] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingEdit, setIsLoadingEdit] = useState(false);
 
   // Step 1: Customer Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -292,6 +297,16 @@ export function CreateCasePage() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const dateInputRefs = useRef({});
   const caseReceivedDateRef = useRef(null);
+
+  // Helper: compute min/max date range from a list of transactions
+  const computeDateRange = (txns) => {
+    const dates = (txns || [])
+      .map((t) => t.transaction_date)
+      .filter(Boolean)
+      .sort();
+    if (dates.length === 0) return null;
+    return { dateFrom: dates[0], dateTo: dates[dates.length - 1] };
+  };
 
   // Step 2: Transactions (multi-account)
   const [accountTransactions, setAccountTransactions] = useState({});
@@ -316,6 +331,7 @@ export function CreateCasePage() {
     branchCode: '',
     customerReportedLate: '',
     channel: '',
+    disputeChannel: '',
     fraudType: '',
     fmsAlertGenerated: '',
     expectedRecoveryOnUs: '',
@@ -333,189 +349,227 @@ export function CreateCasePage() {
   useEffect(() => {
     if (!isEditMode) return;
 
-    const currentCase = getAllCases().find((c) => Number(c.id) === editCaseId);
-    if (!currentCase) return;
+    let cancelled = false;
+    (async () => {
+      setIsLoadingEdit(true);
+      try {
+        const { data: currentCase } = await ibmbAPI.getCase(editCaseId);
+        if (cancelled) return;
+        setCaseToEdit(currentCase);
 
-    const query = String(currentCase.customer?.cnic || currentCase.customer?.account_number || '').trim();
-    const matchedCustomers = query
-      ? searchCustomers(query).filter(
-          (customer) =>
-            customer.cnic === query ||
-            customer.accounts.some((account) => account.account_number === query)
-        )
-      : [];
+        const selectedCustomerForEdit = currentCase.customer;
+        const accountsForEdit = (selectedCustomerForEdit.accounts || []).map((account) => ({
+          ...account,
+          customer: selectedCustomerForEdit,
+        }));
 
-    const fallbackAccountId = `edit-${currentCase.id}`;
-    const fallbackCustomer = {
-      ...currentCase.customer,
-      accounts: [
-        {
-          id: fallbackAccountId,
-          account_number: currentCase.customer?.account_number || '',
-          account_type: 'current',
-          account_status: 'active',
-        },
-      ],
-    };
+        // Fetch transactions for each account from the API
+        const fetchedTransactionsByAccount = {};
+        await Promise.all(
+          accountsForEdit.map(async (account) => {
+            try {
+              const { data } = await ibmbAPI.getAccountTransactions(account.id);
+              fetchedTransactionsByAccount[account.id] = data;
+            } catch {
+              fetchedTransactionsByAccount[account.id] = [];
+            }
+          })
+        );
 
-    const selectedCustomerForEdit = matchedCustomers[0] || fallbackCustomer;
-    const accountsForEdit =
-      (selectedCustomerForEdit.accounts || []).map((account) => ({
-        ...account,
-        customer: selectedCustomerForEdit,
-      })) || [];
+        const existingTransactions = currentCase.transactions || [];
 
-    const fetchedTransactionsByAccount = {};
-    accountsForEdit.forEach((account) => {
-      fetchedTransactionsByAccount[account.id] = getTransactionsForAccount(account.id) || [];
-    });
-
-    const existingTransactions = currentCase.transactions || [];
-    const primaryAccountId = accountsForEdit[0]?.id;
-
-    if (primaryAccountId) {
-      const existingKeySet = new Set(
-        (fetchedTransactionsByAccount[primaryAccountId] || []).map(
-          (txn) => `${String(txn.id)}::${String(txn.transaction_id || '')}`
-        )
-      );
-
-      const missingCaseTransactions = existingTransactions.filter((txn) => {
-        const key = `${String(txn.id)}::${String(txn.transaction_id || '')}`;
-        return !existingKeySet.has(key);
-      });
-
-      if (missingCaseTransactions.length > 0) {
-        fetchedTransactionsByAccount[primaryAccountId] = [
-          ...(fetchedTransactionsByAccount[primaryAccountId] || []),
-          ...missingCaseTransactions,
-        ];
-      }
-    }
-
-    const fetchedTxnIds = new Set(
-      Object.values(fetchedTransactionsByAccount)
-        .flat()
-        .map((txn) => txn.id)
-    );
-    const allFetchedTransactions = Object.values(fetchedTransactionsByAccount).flat();
-    const matchedSystemTransactions = [];
-    const manualOnlyTransactions = [];
-
-    existingTransactions.forEach((existingTxn) => {
-      const match = allFetchedTransactions.find((fetchedTxn) => {
-        if (fetchedTxn.id === existingTxn.id) return true;
-        if (String(fetchedTxn.id) === String(existingTxn.id)) return true;
-        if (
-          existingTxn.transaction_id &&
-          fetchedTxn.transaction_id &&
-          existingTxn.transaction_id === fetchedTxn.transaction_id
-        ) {
-          return true;
+        // Build a lookup of fetched transaction_id strings per account for dedup.
+        // We use the human-readable transaction_id (e.g. "TXN20250112004") because
+        // the case detail API returns CaseTransaction UUIDs as 'id' while the
+        // account transactions API returns Transaction UUIDs — these never match.
+        const fetchedTxnIdsByAccount = {};
+        for (const [accId, txns] of Object.entries(fetchedTransactionsByAccount)) {
+          fetchedTxnIdsByAccount[accId] = new Set(
+            txns.map((txn) => String(txn.transaction_id || '')).filter(Boolean)
+          );
         }
-        return false;
-      });
 
-      if (match) {
-        matchedSystemTransactions.push(match);
-      } else {
-        manualOnlyTransactions.push(existingTxn);
+        // Use account_id from flattened case transactions to group them
+        // into the correct account instead of dumping into the first one.
+        // Only inject if the API-fetched list doesn't already have this transaction.
+        existingTransactions.forEach((txn) => {
+          if (txn.is_manual) return;
+          const txnAccountId = txn.account_id;
+          if (!txnAccountId) return;
+          const txnIdStr = String(txn.transaction_id || '');
+          if (!txnIdStr) return; // skip ghost entries with no transaction_id
+
+          // If this account exists in our fetched map, check if the txn is missing
+          if (fetchedTransactionsByAccount[txnAccountId]) {
+            const idSet = fetchedTxnIdsByAccount[txnAccountId];
+            if (!idSet.has(txnIdStr)) {
+              // Transaction is in the case but not in the fetched list for its account
+              fetchedTransactionsByAccount[txnAccountId].push(txn);
+              idSet.add(txnIdStr);
+            }
+          } else {
+            // Account not in the fetched map — fallback to first account
+            const fallbackId = accountsForEdit[0]?.id;
+            if (fallbackId) {
+              fetchedTransactionsByAccount[fallbackId] = [
+                ...(fetchedTransactionsByAccount[fallbackId] || []),
+                txn,
+              ];
+            }
+          }
+        });
+
+        const allFetchedTransactions = Object.values(fetchedTransactionsByAccount).flat();
+        const matchedSystemTransactions = [];
+        const manualOnlyTransactions = [];
+
+        existingTransactions.forEach((existingTxn) => {
+          if (existingTxn.is_manual) {
+            manualOnlyTransactions.push(existingTxn);
+            return;
+          }
+          // Skip ghost entries that have no transaction_id (from previous bugs)
+          if (!existingTxn.transaction_id) return;
+
+          // Match by transaction_id string FIRST (preferred — gives us the
+          // API-fetched version which has the correct Transaction UUID as 'id')
+          const match = allFetchedTransactions.find((fetchedTxn) => {
+            if (
+              existingTxn.transaction_id &&
+              fetchedTxn.transaction_id &&
+              existingTxn.transaction_id === fetchedTxn.transaction_id
+            ) {
+              return true;
+            }
+            return false;
+          });
+
+          if (match) {
+            matchedSystemTransactions.push(match);
+          } else {
+            manualOnlyTransactions.push(existingTxn);
+          }
+        });
+
+        const selectedSystemIds = [...new Set(matchedSystemTransactions.map((txn) => txn.id))];
+        const selectedManualIds = manualOnlyTransactions.map((txn) => txn.id);
+
+        // Build FTDH ID map. We need to map FTDH IDs from case transaction IDs
+        // to the matched API Transaction IDs (which are now in selectedSystemIds).
+        const perTxnFtdhIds = {};
+        existingTransactions.forEach((txn) => {
+          if (txn?.id == null) return;
+          const ftdh = txn.ftdh_id || '';
+          // Map by case transaction id (for manual txns and direct lookups)
+          perTxnFtdhIds[txn.id] = ftdh;
+          // Also map by the matched API Transaction id so the submit handler
+          // can look up FTDH IDs using the Transaction UUID
+          if (!txn.is_manual && txn.transaction_id && ftdh) {
+            const apiMatch = allFetchedTransactions.find(
+              (ft) => ft.transaction_id === txn.transaction_id
+            );
+            if (apiMatch && apiMatch.id !== txn.id) {
+              perTxnFtdhIds[apiMatch.id] = ftdh;
+            }
+          }
+        });
+
+        const selectedMap = Object.fromEntries(
+          accountsForEdit.map((acc) => {
+            const accountTxns = fetchedTransactionsByAccount[acc.id] || [];
+            const hasSelectedTxn = accountTxns.some((txn) => selectedSystemIds.includes(txn.id));
+            return [acc.id, hasSelectedTxn];
+          })
+        );
+        const selectedSystemIdSet = new Set(selectedSystemIds.map((id) => String(id)));
+        const prefilledDateRanges = {};
+
+        accountsForEdit.forEach((account) => {
+          const accountTxns = fetchedTransactionsByAccount[account.id] || [];
+          const selectedDates = accountTxns
+            .filter((txn) => selectedSystemIdSet.has(String(txn.id)))
+            .map((txn) => txn.transaction_date)
+            .filter(Boolean)
+            .sort();
+
+          if (selectedDates.length > 0) {
+            prefilledDateRanges[account.id] = {
+              dateFrom: selectedDates[0],
+              dateTo: selectedDates[selectedDates.length - 1],
+            };
+          } else {
+            // Fallback: use dates from case transactions that belong to this account
+            const accountTxnDates = existingTransactions
+              .filter((txn) => !txn.is_manual && String(txn.account_id) === String(account.id))
+              .map((txn) => txn.transaction_date)
+              .filter(Boolean)
+              .sort();
+
+            if (accountTxnDates.length > 0) {
+              prefilledDateRanges[account.id] = {
+                dateFrom: accountTxnDates[0],
+                dateTo: accountTxnDates[accountTxnDates.length - 1],
+              };
+            }
+          }
+        });
+
+        setSearchQuery(selectedCustomerForEdit.cnic || '');
+        setSearchResults([selectedCustomerForEdit]);
+        setHasSearched(accountsForEdit.length > 0);
+        setFoundAccounts(accountsForEdit);
+        setSelectedFoundAccountIds(selectedMap);
+        setExpandedFoundAccountId(
+          accountsForEdit.find((acc) => selectedMap[acc.id])?.id || accountsForEdit[0]?.id || null
+        );
+        setSelectedCustomer(selectedCustomerForEdit);
+        setAccountTransactions(fetchedTransactionsByAccount);
+        setDateRanges(prefilledDateRanges);
+
+        setSelectedTransactionIds(selectedSystemIds);
+        setStep2VisibleTransactionIds(selectedSystemIds);
+        setManualTransactions(manualOnlyTransactions);
+        setSelectedManualTransactionIds(selectedManualIds);
+        setTransactionFtdhIds(perTxnFtdhIds);
+
+        const validReceivedChannelValues = new Set(caseReceivedChannelOptions.map((o) => o.value));
+        const parsedCaseReceivingChannels = String(currentCase.case_receiving_channel || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((value) => value && validReceivedChannelValues.has(value));
+
+        setCaseDetails((prev) => ({
+          ...prev,
+          referenceNumber: currentCase.reference_number || prev.referenceNumber,
+          complaintNo: currentCase.complaint_number || prev.complaintNo,
+          caseReceivedChannel: parsedCaseReceivingChannels,
+          caseReceivingChannel: parsedCaseReceivingChannels.join(', '),
+          caseReceivedDate: currentCase.case_received_date || prev.caseReceivedDate,
+          disputeChannel: currentCase.dispute_channel || prev.disputeChannel,
+          fraudType: currentCase.fraud_type || prev.fraudType,
+          branchCode: currentCase.branch_code || prev.branchCode,
+          expectedRecoveryOnUs: currentCase.expected_recovery_onus || prev.expectedRecoveryOnUs,
+          expectedRecoveryMemberBank:
+            currentCase.expected_recovery_member_bank || prev.expectedRecoveryMemberBank,
+          disputeAmountAtRisk: String(currentCase.total_disputed_amount || prev.disputeAmountAtRisk || ''),
+          noOfTransactions: String(existingTransactions.length || prev.noOfTransactions || ''),
+        }));
+
+        setCurrentStep(1);
+      } catch (err) {
+        console.error('Failed to load case for editing:', err);
+        toast.error('Failed to load case data');
+      } finally {
+        setIsLoadingEdit(false);
       }
-    });
+    })();
 
-    const selectedSystemIds = [...new Set(matchedSystemTransactions.map((txn) => txn.id))];
-    const selectedManualIds = manualOnlyTransactions.map((txn) => txn.id);
-    const perTxnFtdhIds = existingTransactions.reduce((acc, txn) => {
-      if (txn?.id != null) {
-        acc[txn.id] = txn.ftdh_id || '';
-      }
-      return acc;
-    }, {});
-
-    const selectedMap = Object.fromEntries(
-      accountsForEdit.map((acc) => {
-        const accountTxns = fetchedTransactionsByAccount[acc.id] || [];
-        const hasSelectedTxn = accountTxns.some((txn) => selectedSystemIds.includes(txn.id));
-        return [acc.id, hasSelectedTxn];
-      })
-    );
-    const selectedSystemIdSet = new Set(selectedSystemIds.map((id) => String(id)));
-    const prefilledDateRanges = {};
-
-    accountsForEdit.forEach((account) => {
-      const accountTxns = fetchedTransactionsByAccount[account.id] || [];
-      const selectedDates = accountTxns
-        .filter((txn) => selectedSystemIdSet.has(String(txn.id)))
-        .map((txn) => txn.transaction_date)
-        .filter(Boolean)
-        .sort();
-
-      if (selectedDates.length > 0) {
-        prefilledDateRanges[account.id] = {
-          dateFrom: selectedDates[0],
-          dateTo: selectedDates[selectedDates.length - 1],
-        };
-      } else if (accountsForEdit.length === 1) {
-        const existingTxnDates = existingTransactions
-          .map((txn) => txn.transaction_date)
-          .filter(Boolean)
-          .sort();
-
-        if (existingTxnDates.length > 0) {
-          prefilledDateRanges[account.id] = {
-            dateFrom: existingTxnDates[0],
-            dateTo: existingTxnDates[existingTxnDates.length - 1],
-          };
-        }
-      }
-    });
-
-    setSearchQuery(query);
-    setSearchResults(matchedCustomers);
-    setHasSearched(accountsForEdit.length > 0);
-    setFoundAccounts(accountsForEdit);
-    setSelectedFoundAccountIds(selectedMap);
-    setExpandedFoundAccountId(
-      accountsForEdit.find((acc) => selectedMap[acc.id])?.id || accountsForEdit[0]?.id || null
-    );
-    setSelectedCustomer(selectedCustomerForEdit);
-    setAccountTransactions(fetchedTransactionsByAccount);
-    setDateRanges(prefilledDateRanges);
-
-    setSelectedTransactionIds(selectedSystemIds);
-    setStep2VisibleTransactionIds(selectedSystemIds);
-    setManualTransactions(manualOnlyTransactions);
-    setSelectedManualTransactionIds(selectedManualIds);
-    setTransactionFtdhIds(perTxnFtdhIds);
-
-    const validReceivedChannelValues = new Set(caseReceivedChannelOptions.map((o) => o.value));
-    const parsedCaseReceivingChannels = String(currentCase.case_receiving_channel || currentCase.channel || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((value) => value && validReceivedChannelValues.has(value));
-
-    setCaseDetails((prev) => ({
-      ...prev,
-      referenceNumber: currentCase.reference_number || prev.referenceNumber,
-      complaintNo: currentCase.complaint_number || prev.complaintNo,
-      caseReceivedChannel: parsedCaseReceivingChannels,
-      caseReceivingChannel: parsedCaseReceivingChannels.join(', '),
-      caseReceivedDate: currentCase.case_received_date || prev.caseReceivedDate,
-      fraudType: currentCase.fraud_type || prev.fraudType,
-      branchCode: currentCase.branch_code || prev.branchCode,
-      expectedRecoveryOnUs: currentCase.expected_recovery_onus || prev.expectedRecoveryOnUs,
-      expectedRecoveryMemberBank:
-        currentCase.expected_recovery_member_bank || prev.expectedRecoveryMemberBank,
-      disputeAmountAtRisk: String(currentCase.total_disputed_amount || prev.disputeAmountAtRisk || ''),
-      noOfTransactions: String(existingTransactions.length || prev.noOfTransactions || ''),
-    }));
-
-    setCurrentStep(1);
+    return () => { cancelled = true; };
   }, [isEditMode, editCaseId]);
 
   // ─── Search Logic ─────────────────────────────────────────────────────
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const query = searchQuery.trim();
     if (!query) {
       setSearchResults([]);
@@ -526,42 +580,54 @@ export function CreateCasePage() {
       return;
     }
 
-    const results = searchCustomers(query).filter(
-      (customer) =>
-        customer.cnic === query ||
-        customer.accounts.some((account) => account.account_number === query)
-    );
-    const accounts = results.flatMap((customer) =>
-      customer.accounts.map((account) => ({
-        ...account,
-        customer,
-      }))
-    );
+    try {
+      const { data: results } = await ibmbAPI.searchCustomers(query);
+      const accounts = results.flatMap((customer) =>
+        customer.accounts.map((account) => ({
+          ...account,
+          customer,
+        }))
+      );
 
-    setSearchResults(results);
-    setFoundAccounts(accounts);
-    setHasSearched(true);
+      setSearchResults(results);
+      setFoundAccounts(accounts);
+      setHasSearched(true);
 
-    // Reset selection context on every fresh search
-    setSelectedTransactionIds([]);
-    setManualTransactions([]);
-    setAccountTransactions({});
-    setDateRanges({});
+      // Reset selection context on every fresh search
+      setSelectedTransactionIds([]);
+      setManualTransactions([]);
+      setAccountTransactions({});
+      setDateRanges({});
 
-    if (accounts.length > 0) {
-      const first = accounts[0];
-      setSelectedFoundAccountIds({ [first.id]: true });
-      setExpandedFoundAccountId(first.id);
-      setSelectedCustomer(first.customer);
-      setAccountTransactions({ [first.id]: getTransactionsForAccount(first.id) });
-    } else {
-      setSelectedFoundAccountIds({});
-      setExpandedFoundAccountId(null);
-      setSelectedCustomer(null);
+      if (accounts.length > 0) {
+        const first = accounts[0];
+        setSelectedFoundAccountIds({ [first.id]: true });
+        setExpandedFoundAccountId(first.id);
+        setSelectedCustomer(first.customer);
+        try {
+          const { data: txns } = await ibmbAPI.getAccountTransactions(first.id);
+          setAccountTransactions({ [first.id]: txns });
+          // Pre-fill date range with min/max transaction dates
+          const range = computeDateRange(txns);
+          if (range) setDateRanges((prev) => ({ ...prev, [first.id]: range }));
+        } catch {
+          setAccountTransactions({ [first.id]: [] });
+        }
+      } else {
+        setSelectedFoundAccountIds({});
+        setExpandedFoundAccountId(null);
+        setSelectedCustomer(null);
+      }
+    } catch (err) {
+      console.error('Customer search failed:', err);
+      toast.error('Search failed. Please try again.');
+      setSearchResults([]);
+      setFoundAccounts([]);
+      setHasSearched(true);
     }
   };
 
-  const handleToggleFoundAccount = (account, checked) => {
+  const handleToggleFoundAccount = async (account, checked) => {
     const accountId = account.id;
 
     setSelectedFoundAccountIds((prev) => ({
@@ -572,13 +638,17 @@ export function CreateCasePage() {
     if (checked) {
       setSelectedCustomer(account.customer);
       setExpandedFoundAccountId(accountId);
-      setAccountTransactions((prev) => {
-        if (prev[accountId]) return prev;
-        return {
-          ...prev,
-          [accountId]: getTransactionsForAccount(accountId),
-        };
-      });
+      if (!accountTransactions[accountId]) {
+        try {
+          const { data: txns } = await ibmbAPI.getAccountTransactions(accountId);
+          setAccountTransactions((prev) => ({ ...prev, [accountId]: txns }));
+          // Pre-fill date range with min/max transaction dates
+          const range = computeDateRange(txns);
+          if (range) setDateRanges((prev) => ({ ...prev, [accountId]: range }));
+        } catch {
+          setAccountTransactions((prev) => ({ ...prev, [accountId]: [] }));
+        }
+      }
       return;
     }
 
@@ -668,12 +738,10 @@ export function CreateCasePage() {
       return;
     }
 
-    const derivedReference = `REF-IBMB-${String(selectedCustomer?.id || 1).padStart(3, '0')}`;
-    const derivedComplaint = `CMP-${new Date().getFullYear()}-${String((selectedCustomer?.id || 0) + 987).padStart(5, '0')}`;
+    const derivedComplaint = caseDetails.complaintNo || '';
 
     setCaseDetails((prev) => ({
       ...prev,
-      referenceNumber: prev.referenceNumber || derivedReference,
       complaintNo: prev.complaintNo || derivedComplaint,
       caseReceivedChannel:
         normalizeToArray(prev.caseReceivedChannel).length > 0
@@ -794,6 +862,8 @@ export function CreateCasePage() {
     caseDetails.complaintNo &&
     normalizeToArray(caseDetails.caseReceivedChannel).length > 0 &&
     caseDetails.caseReceivedDate &&
+    caseDetails.disputeChannel &&
+    caseDetails.fraudType &&
     allSelectedTxns.length > 0;
 
   const selectedReceivedChannels = normalizeToArray(caseDetails.caseReceivedChannel);
@@ -809,73 +879,83 @@ export function CreateCasePage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Build the case_transactions payload for the API
+      const caseTransactions = [];
 
-      const allCases = getAllCases();
-      const nextId = allCases.reduce((maxId, c) => Math.max(maxId, Number(c?.id) || 0), 0) + 1;
-      const year = new Date().getFullYear();
-      const referenceNumber = isEditMode
-        ? (caseToEdit?.reference_number || `IBMB-${year}-${String(editCaseId).padStart(6, '0')}`)
-        : `IBMB-${year}-${String(nextId).padStart(6, '0')}`;
+      // System (selected) transactions
+      // Use system_transaction_id (the real Transaction UUID) if available
+      // (present on injected case txns); otherwise use id (Transaction UUID
+      // from API-fetched txns).
+      selectedSystemTxns.forEach((txn) => {
+        caseTransactions.push({
+          transaction_id: txn.system_transaction_id || txn.id,
+          disputed_amount: Number(txn.disputed_amount || txn.amount || 0),
+          ftdh_id: transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? '',
+          is_manual: false,
+        });
+      });
 
-      const txnsToSave = allSelectedTxns.map((txn, idx) => ({
-        id: txn.id || `MANUAL-${Date.now()}-${idx}`,
-        transaction_id: txn.transaction_id,
-        stan: txn.stan || '',
-        transaction_date: txn.transaction_date,
-        transaction_time: txn.transaction_time || '',
-        amount: Number(txn.amount || 0),
-        disputed_amount: Number(txn.disputed_amount || txn.amount || 0),
-        beneficiary_account: txn.beneficiary_account || '',
-        beneficiary_bank: txn.beneficiary_bank || '',
-        beneficiary_name: txn.beneficiary_name || '',
-        channel: txn.channel || 'IB',
-        ip_address: txn.ip_address || '',
-        device_id: txn.device_id || txn.imei || '',
-        ftdh_id: transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? '',
-      }));
+      // Manual transactions
+      selectedManualTxns.forEach((txn) => {
+        caseTransactions.push({
+          disputed_amount: Number(txn.disputed_amount || txn.amount || 0),
+          ftdh_id: transactionFtdhIds[txn.id] ?? txn.ftdh_id ?? '',
+          is_manual: true,
+          manual_transaction_data: {
+            transaction_id: txn.transaction_id || '',
+            stan: txn.stan || '',
+            transaction_date: txn.transaction_date || '',
+            transaction_time: txn.transaction_time || '',
+            amount: Number(txn.amount || 0),
+            beneficiary_account: txn.beneficiary_account || '',
+            beneficiary_bank: txn.beneficiary_bank || '',
+            beneficiary_name: txn.beneficiary_name || '',
+            beneficiary_added: txn.beneficiary_added || '',
+            channel: txn.channel || '',
+            branch_name: txn.branch_name || '',
+            branch_code: txn.branch_code || '',
+            ip_address: txn.ip_address || '',
+            device_id: txn.device_id || txn.imei || '',
+            imei: txn.imei || '',
+          },
+        });
+      });
 
-      const createdCase = {
-        id: isEditMode ? editCaseId : nextId,
-        reference_number: referenceNumber,
-        customer: {
-          id: selectedCustomer?.id ?? null,
-          name: selectedCustomer?.name || 'Unknown Customer',
-          cnic: selectedCustomer?.cnic || '',
-          account_number: selectedFoundAccounts[0]?.account_number || selectedCustomer?.accounts?.[0]?.account_number || '',
-          card_number: selectedCustomer?.card_number || '',
-          city: selectedCustomer?.city || 'N/A',
-          region: selectedCustomer?.region || 'N/A',
-          mobile: selectedCustomer?.mobile || '',
-        },
-        status: caseToEdit?.status || 'open',
-        investigation_status: caseToEdit?.investigation_status || 'in_progress',
-        channel: selectedReceivedChannels[0] || 'other',
-        case_receiving_channel: selectedReceivedChannels.join(', '),
+      const payload = {
+        customer_id: selectedCustomer?.id,
+        complaint_number: caseDetails.complaintNo || '',
+        case_receiving_channel: normalizeToArray(caseDetails.caseReceivedChannel).join(', '),
+        dispute_channel: caseDetails.disputeChannel || '',
         fraud_type: caseDetails.fraudType || 'other',
-        complaint_number: caseDetails.complaintNo,
-        total_disputed_amount: totalDisputedAmount,
-        created_at: caseToEdit?.created_at || new Date().toISOString(),
-        assigned_to: isEditMode ? caseToEdit?.assigned_to : assignNextInvestigator(),
-        created_by: caseToEdit?.created_by,
-        case_received_date: caseDetails.caseReceivedDate,
-        transactions: txnsToSave,
-        actions: caseToEdit?.actions || [],
+        case_received_date: caseDetails.caseReceivedDate || null,
+        date_incident_occurred: caseDetails.dateIncidentOccurred || '',
+        branch_code: caseDetails.branchCode || '',
+        customer_reported_late: caseDetails.customerReportedLate || '',
+        fms_alert_generated: caseDetails.fmsAlertGenerated || '',
+        ftdh_filled: caseDetails.ftdhFilled || '',
+        expected_recovery_onus: caseDetails.expectedRecoveryOnUs || 'NIL',
+        expected_recovery_member_bank: caseDetails.expectedRecoveryMemberBank || 'NIL',
+        notes: caseDetails.notes || '',
+        case_transactions: caseTransactions,
       };
 
       if (isEditMode) {
-        upsertCase(createdCase);
+        const { data: updatedCase } = await ibmbAPI.updateCase(editCaseId, payload);
         toast.success('Case updated successfully', {
-          description: `Reference: ${referenceNumber}`,
+          description: `Reference: ${updatedCase.reference_number}`,
         });
         navigate(`/cases/${editCaseId}`);
       } else {
-        addImportedCases([createdCase]);
+        const { data: createdCase } = await ibmbAPI.createCase(payload);
         toast.success('Case created successfully', {
-          description: `Reference: ${referenceNumber}${createdCase.assigned_to?.name ? ` • Assigned to ${createdCase.assigned_to.name}` : ''}`,
+          description: `Reference: ${createdCase.reference_number}`,
         });
         navigate('/cases');
       }
+    } catch (err) {
+      console.error('Case save failed:', err);
+      const detail = err.response?.data?.detail || err.response?.data?.case_transactions || 'An error occurred';
+      toast.error('Failed to save case', { description: String(detail) });
     } finally {
       setIsSubmitting(false);
     }
@@ -1299,7 +1379,7 @@ export function CreateCasePage() {
                   <div className="space-y-1">
                     <Label>Reference Number</Label>
                     <Input
-                      value={caseDetails.referenceNumber || `REF-IBMB-${String(selectedCustomer?.id || 1).padStart(3, '0')}`}
+                      value={caseDetails.referenceNumber || '(Auto-generated on save)'}
                       readOnly
                       className="h-[47px] border-[#05aee5] bg-[#f9fafb] text-[16px]"
                     />
@@ -1386,6 +1466,42 @@ export function CreateCasePage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+                  <div className="space-y-1">
+                    <Label>
+                      Dispute Channel <span className="text-[#E20015]">*</span>
+                    </Label>
+                    <Select
+                      value={caseDetails.disputeChannel}
+                      onValueChange={(value) => setCaseDetails({ ...caseDetails, disputeChannel: value })}
+                    >
+                      <SelectTrigger className="h-[47px] w-full border-[#dae1e7] bg-[#f9fafb] text-[16px] text-[#4C4C4C] data-[size=default]:h-[47px]">
+                        <SelectValue placeholder="Select dispute channel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {disputeChannelOptions.map((ch) => (
+                          <SelectItem key={ch.value} value={ch.value}>{ch.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>
+                      Fraud Type <span className="text-[#E20015]">*</span>
+                    </Label>
+                    <Select
+                      value={caseDetails.fraudType}
+                      onValueChange={(value) => setCaseDetails({ ...caseDetails, fraudType: value })}
+                    >
+                      <SelectTrigger className="h-[47px] w-full border-[#dae1e7] bg-[#f9fafb] text-[16px] text-[#4C4C4C] data-[size=default]:h-[47px]">
+                        <SelectValue placeholder="Select fraud type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fraudTypes.map((ft) => (
+                          <SelectItem key={ft.value} value={ft.value}>{ft.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1441,6 +1557,7 @@ export function CreateCasePage() {
                                   />
                                 </TableHead>
                                 <TableHead>Transaction ID</TableHead>
+                                <TableHead>STAN</TableHead>
                                 <TableHead>Branch</TableHead>
                                 <TableHead>Amount</TableHead>
                                 <TableHead>Beneficiary</TableHead>
@@ -1459,6 +1576,7 @@ export function CreateCasePage() {
                                     />
                                   </TableCell>
                                   <TableCell className="font-medium">{txn.transaction_id}</TableCell>
+                                  <TableCell className="font-mono text-xs">{txn.stan || '—'}</TableCell>
                                   <TableCell>
                                     <p>{txn.branch_name || 'Clifton Branch'}</p>
                                     <p className="text-xs text-[#afafaf]">{txn.branch_code || '0123'}</p>
@@ -1525,6 +1643,7 @@ export function CreateCasePage() {
                                     />
                                   </TableHead>
                                   <TableHead>Transaction ID</TableHead>
+                                  <TableHead>STAN</TableHead>
                                   <TableHead>Branch</TableHead>
                                   <TableHead>Amount</TableHead>
                                   <TableHead>Beneficiary</TableHead>
@@ -1543,6 +1662,7 @@ export function CreateCasePage() {
                                       />
                                     </TableCell>
                                     <TableCell className="font-medium">{txn.transaction_id}</TableCell>
+                                    <TableCell className="font-mono text-xs">{txn.stan || '—'}</TableCell>
                                     <TableCell>
                                       <p>{txn.branch_name || '—'}</p>
                                       <p className="text-xs text-[#afafaf]">{txn.branch_code || '—'}</p>

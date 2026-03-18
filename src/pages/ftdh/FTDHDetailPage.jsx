@@ -862,6 +862,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
               </svg>
               Update Form
             </Button>
+
           </div>
         </div>
 
@@ -947,6 +948,7 @@ export function FTDHDetailPage({ currentRole = 'ftdh_officer' }) {
 
           {/* Right Column - Communication with Member Bank */}
           <div className="flex-1 p-6 overflow-y-auto">
+
             <h2 className={`text-[20px] font-semibold mb-4 ${mb?.enabled ? 'text-[#4C4C4C]' : 'text-[#AFAFAF]'}`}>
               Communication with Member Bank
             </h2>

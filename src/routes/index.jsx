@@ -5,7 +5,6 @@ import DashboardPage from '@/pages/dashboard/DashboardPage';
 import CaseListPage from '@/pages/cases/CaseListPage';
 import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
-import CaseImportPage from '@/pages/cases/CaseImportPage';
 import InvestigationFormPage from '@/pages/cases/InvestigationFormPage';
 import InvestigationReviewPage from '@/pages/cases/InvestigationReviewPage';
 import SupervisorInvestigationReportPage from '@/pages/cases/SupervisorInvestigationReportPage';
@@ -21,7 +20,6 @@ import {
   canAccessIBMB,
   canAccessFTDH,
   isBranchUser,
-  isAdmin,
   canApprove,
 } from '@/utils/permissions';
 
@@ -47,7 +45,9 @@ function PlaceholderPage({ title }) {
   );
 }
 
-export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }) {
+export function AppRoutes({ user, onLogin, onLogout }) {
+  const currentRole = user?.role;
+
   return (
     <Routes>
       {/* Public Routes */}
@@ -69,8 +69,6 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
             <MainLayout
               user={user}
               onLogout={onLogout}
-              onRoleChange={onRoleChange}
-              currentRole={currentRole}
             />
           ) : (
             <Navigate to="/login" replace />
@@ -81,7 +79,7 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage currentRole={currentRole} />} />
 
-        {/* IB/MB Cases — investigator, supervisor, admin */}
+        {/* IB/MB Cases — investigator, supervisor */}
         <Route path="/cases" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
             <CaseListPage currentRole={currentRole} />
@@ -95,11 +93,6 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
         <Route path="/cases/:id/edit" element={
           <PermissionGuard allowed={canAccessIBMB(currentRole)}>
             <CreateCasePage />
-          </PermissionGuard>
-        } />
-        <Route path="/cases/import" element={
-          <PermissionGuard allowed={canAccessIBMB(currentRole)}>
-            <CaseImportPage />
           </PermissionGuard>
         } />
         <Route path="/cases/:id" element={
@@ -138,7 +131,7 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
           </PermissionGuard>
         } />
 
-        {/* FTDH — ftdh_officer, admin */}
+        {/* FTDH — ftdh_officer, supervisor */}
         <Route path="/ftdh" element={
           <PermissionGuard allowed={canAccessFTDH(currentRole)}>
             <FTDHInwardPage currentRole={currentRole} />
@@ -170,12 +163,6 @@ export function AppRoutes({ user, onLogin, onLogout, onRoleChange, currentRole }
           </PermissionGuard>
         } />
 
-        {/* Admin */}
-        <Route path="/users" element={
-          <PermissionGuard allowed={isAdmin(currentRole)}>
-            <PlaceholderPage title="User Management" />
-          </PermissionGuard>
-        } />
         <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
       </Route>
 

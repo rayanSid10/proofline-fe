@@ -88,6 +88,7 @@ export function ManualTransactionModal({
     const newErrors = {};
 
     if (!form.transaction_id.trim()) newErrors.transaction_id = 'Required';
+    if (!form.stan.trim()) newErrors.stan = 'Required';
     if (!form.transaction_date) newErrors.transaction_date = 'Required';
     if (!form.transaction_time) newErrors.transaction_time = 'Required';
 
@@ -110,7 +111,6 @@ export function ManualTransactionModal({
     if (!form.branch_code.trim()) newErrors.branch_code = 'Required';
     if (!form.ip_address.trim()) newErrors.ip_address = 'Required';
     if (!form.imei.trim()) newErrors.imei = 'Required';
-    if (!form.ftdh_id.trim()) newErrors.ftdh_id = 'Required';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -188,6 +188,18 @@ export function ManualTransactionModal({
                   />
                 </div>
                 {errors.transaction_id && <p className="text-xs text-destructive">{errors.transaction_id}</p>}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="stan" className="text-[16px] text-[#4C4C4C]">STAN<span className="text-[#c22e1f]">*</span></Label>
+                <Input
+                  id="stan"
+                  placeholder="Enter STAN"
+                  value={form.stan}
+                  onChange={(e) => handleChange('stan', e.target.value)}
+                  className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]"
+                />
+                {errors.stan && <p className="text-xs text-destructive">{errors.stan}</p>}
               </div>
 
               <div className="space-y-1">
@@ -277,7 +289,7 @@ export function ManualTransactionModal({
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="ftdh_id" className="text-[16px] text-[#4C4C4C]">FTDH ID<span className="text-[#c22e1f]">*</span></Label>
+                <Label htmlFor="ftdh_id" className="text-[16px] text-[#4C4C4C]">FTDH ID</Label>
                 <Input id="ftdh_id" placeholder="Enter FTDH ID" value={form.ftdh_id} onChange={(e) => handleChange('ftdh_id', e.target.value)} className="w-full md:w-[283px] h-[47px] bg-[#F9FAFB] border-[#DAE1E7] text-[16px]" />
                 {errors.ftdh_id && <p className="text-xs text-destructive">{errors.ftdh_id}</p>}
               </div>

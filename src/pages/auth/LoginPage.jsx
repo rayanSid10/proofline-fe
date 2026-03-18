@@ -13,20 +13,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ROLES } from '@/utils/permissions';
+import { authAPI } from '@/api/auth';
 
 export function LoginPage({ onLogin }) {
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedRole, setSelectedRole] = useState('investigator');
+  const [loginError, setLoginError] = useState('');
 
   const {
     register,
@@ -41,29 +34,32 @@ export function LoginPage({ onLogin }) {
 
   const onSubmit = async (data) => {
     setIsLoading(true);
+    setLoginError('');
     try {
-      // For demo purposes, simulate login
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await authAPI.login(data.email, data.password);
+      const { access, refresh, user } = response.data;
 
-      const mockUser = {
-        id: '1',
-        name: 'Demo User',
-        email: data.email,
-        role: selectedRole,
-        avatar: null,
+      // Store tokens
+      localStorage.setItem('token', access);
+      localStorage.setItem('refresh', refresh);
+
+      // Normalize role to lowercase for frontend permission checks
+      const normalizedUser = {
+        ...user,
+        role: user.role.toLowerCase(),
+        name: user.full_name,
       };
 
-      if (selectedRole === 'investigator') {
-        mockUser.id = '2';
-        mockUser.name = 'Ali Raza';
-      }
-
       if (onLogin) {
-        onLogin(mockUser);
+        onLogin(normalizedUser);
       }
       navigate('/dashboard');
     } catch (error) {
-      console.error('Login failed:', error);
+      const detail =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        'Invalid email or password.';
+      setLoginError(detail);
     } finally {
       setIsLoading(false);
     }
@@ -85,6 +81,12 @@ export function LoginPage({ onLogin }) {
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
+            {loginError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {loginError}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -113,10 +115,6 @@ export function LoginPage({ onLogin }) {
                   placeholder="Enter your password"
                   {...register('password', {
                     required: 'Password is required',
-                    minLength: {
-                      value: 6,
-                      message: 'Password must be at least 6 characters',
-                    },
                   })}
                 />
                 <Button
@@ -137,31 +135,6 @@ export function LoginPage({ onLogin }) {
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="role">Login as (Demo)</Label>
-              <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger id="role">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROLES.map((role) => (
-                    <SelectItem key={role.value} value={role.value}>
-                      {role.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Select a role to demo different user permissions
-              </p>
-            </div>
-
-            {selectedRole === 'investigator' && (
-              <p className="text-xs text-muted-foreground">
-                Investigator login is fixed to Ali Raza for demo assignment controls.
-              </p>
-            )}
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={isLoading}>

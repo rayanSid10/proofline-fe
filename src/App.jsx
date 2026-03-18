@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/sonner';
 import { AppRoutes } from '@/routes';
+import { authAPI } from '@/api/auth';
 
 const queryClient = new QueryClient();
 const AUTH_USER_KEY = 'proofline.auth.user';
@@ -18,40 +19,63 @@ function getStoredUser() {
 
 function App() {
   const [user, setUser] = useState(() => getStoredUser());
-  const [currentRole, setCurrentRole] = useState(() => getStoredUser()?.role || 'investigator');
+  const [isLoading, setIsLoading] = useState(() => !!localStorage.getItem('token'));
+
+  // On mount, validate token by calling /auth/me/
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
+    authAPI.me()
+      .then(({ data }) => {
+        const normalizedUser = {
+          ...data,
+          role: data.role.toLowerCase(),
+          name: data.full_name,
+        };
+        setUser(normalizedUser);
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(normalizedUser));
+      })
+      .catch(() => {
+        // Token invalid/expired and refresh failed — clear everything
+        setUser(null);
+        localStorage.removeItem('token');
+        localStorage.removeItem('refresh');
+        localStorage.removeItem(AUTH_USER_KEY);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const handleLogin = (userData) => {
     setUser(userData);
-    setCurrentRole(userData.role);
     try {
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
     } catch {
-      // ignore storage failures in demo mode
+      // ignore storage failures
     }
   };
 
   const handleLogout = () => {
     setUser(null);
-    setCurrentRole('investigator');
     try {
       localStorage.removeItem(AUTH_USER_KEY);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refresh');
     } catch {
-      // ignore storage failures in demo mode
+      // ignore storage failures
     }
   };
 
-  const handleRoleChange = (role) => {
-    setCurrentRole(role);
-    if (user) {
-      const updatedUser = { ...user, role };
-      setUser(updatedUser);
-      try {
-        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
-      } catch {
-        // ignore storage failures in demo mode
-      }
-    }
-  };
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -60,8 +84,6 @@ function App() {
           user={user}
           onLogin={handleLogin}
           onLogout={handleLogout}
-          onRoleChange={handleRoleChange}
-          currentRole={currentRole}
         />
       </BrowserRouter>
       <Toaster />

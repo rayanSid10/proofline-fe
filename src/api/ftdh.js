@@ -27,6 +27,20 @@ export const ftdhAPI = {
   // Google Sheet import
   importFromSheet: () => api.post('/ftdh/inward/import/'),
 
+  // Update Snapshot (draft-save for Update Modal)
+  getUpdateSnapshot: (id) => api.get(`/ftdh/inward/${id}/update_snapshot/`),
+  patchUpdateSnapshot: (id, payload) => api.patch(`/ftdh/inward/${id}/update_snapshot/`, payload),
+  uploadSnapshotFiles: (id, files, stageKey = 'stage3') => {
+    const formData = new FormData();
+    formData.append('stage_key', stageKey);
+    for (const f of files) formData.append('files', f);
+    return api.post(`/ftdh/inward/${id}/update_snapshot/upload/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteSnapshotAttachment: (id, attachmentId) =>
+    api.delete(`/ftdh/inward/${id}/update_snapshot/attachment/${attachmentId}/`),
+
   // Branch portal
   listBranchAssigned: (params) => api.get('/ftdh/branch/assigned/', { params }),
 };
