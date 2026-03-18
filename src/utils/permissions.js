@@ -32,3 +32,6 @@ export const isBranchUser = (role) => role === 'branch_user';
 /** Can view reports */
 export const canAccessReports = (role) =>
   ['supervisor', 'ftdh_officer'].includes(role);
+
+/** Can access dashboard (analytics) - Supervisor only */
+export const canAccessDashboard = (role) => role === 'supervisor';

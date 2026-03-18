@@ -48,41 +48,41 @@ function getMenuItems(role) {
     });
   }
 
-  // Placeholder items matching Figma sidebar
+  // Coming soon features - available to all roles
   items.push({
     title: 'Credit Card Dispute',
     icon: CreditCard,
-    path: '/credit-card',
+    path: '/credit-card-dispute',
   });
 
   items.push({
     title: 'Debit Card Dispute',
     icon: Smartphone,
-    path: '/debit-card',
+    path: '/debit-card-dispute',
   });
 
   items.push({
     title: 'Wallets Dispute',
     icon: Wallet,
-    path: '/wallets',
+    path: '/wallets-dispute',
   });
 
   items.push({
     title: 'Merchant Acquiring',
     icon: Building2,
-    path: '/merchant',
+    path: '/merchant-acquiring',
   });
 
   items.push({
     title: 'Application Level',
     icon: AppWindow,
-    path: '/application',
+    path: '/application-level',
   });
 
   items.push({
     title: 'Dispute Resolution',
     icon: Scale,
-    path: '/resolution',
+    path: '/dispute-resolution',
   });
 
   if (canAccessFTDH(role)) {
