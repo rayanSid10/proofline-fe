@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/auth/LoginPage';
-import DashboardPage from '@/pages/dashboard/DashboardPage';
+import EnhancedDashboardPage from '@/pages/dashboard/EnhancedDashboardPage';
+import AccessDenied from '@/components/shared/AccessDenied';
+import ComingSoon from '@/components/shared/ComingSoon';
 import CaseListPage from '@/pages/cases/CaseListPage';
 import CaseDetailPage from '@/pages/cases/CaseDetailPage';
 import CreateCasePage from '@/pages/cases/CreateCasePage';
@@ -21,6 +23,7 @@ import {
   canAccessFTDH,
   isBranchUser,
   canApprove,
+  canAccessDashboard,
 } from '@/utils/permissions';
 
 /**
@@ -34,19 +37,27 @@ function PermissionGuard({ allowed, children }) {
   return children;
 }
 
-function PlaceholderPage({ title }) {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold">{title}</h2>
-        <p className="text-muted-foreground mt-2">Coming soon...</p>
-      </div>
-    </div>
-  );
+// Placeholder removed - using ComingSoon component instead
+
+// Helper to get default route based on role
+function getDefaultRoute(role) {
+  switch (role) {
+    case 'supervisor':
+      return '/dashboard';
+    case 'investigator':
+      return '/cases';
+    case 'ftdh_officer':
+      return '/ftdh';
+    case 'branch_user':
+      return '/ftdh/branch';
+    default:
+      return '/dashboard';
+  }
 }
 
 export function AppRoutes({ user, onLogin, onLogout }) {
   const currentRole = user?.role;
+  const defaultRoute = getDefaultRoute(currentRole);
 
   return (
     <Routes>
@@ -75,9 +86,18 @@ export function AppRoutes({ user, onLogin, onLogout }) {
           )
         }
       >
-        {/* Dashboard — all roles */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage currentRole={currentRole} />} />
+        {/* Dashboard — supervisor only */}
+        <Route path="/" element={<Navigate to={defaultRoute} replace />} />
+        <Route
+          path="/dashboard"
+          element={
+            canAccessDashboard(currentRole) ? (
+              <EnhancedDashboardPage currentRole={currentRole} />
+            ) : (
+              <AccessDenied />
+            )
+          }
+        />
 
         {/* IB/MB Cases — investigator, supervisor */}
         <Route path="/cases" element={
@@ -163,7 +183,15 @@ export function AppRoutes({ user, onLogin, onLogout }) {
           </PermissionGuard>
         } />
 
-        <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+        {/* Coming Soon Pages */}
+        <Route path="/reports" element={<ComingSoon feature="Reports" />} />
+        <Route path="/dispute-resolution" element={<ComingSoon feature="Dispute Resolution" />} />
+        <Route path="/application-level" element={<ComingSoon feature="Application Level" />} />
+        <Route path="/merchant-acquiring" element={<ComingSoon feature="Merchant Acquiring" />} />
+        <Route path="/wallets-dispute" element={<ComingSoon feature="Wallets Dispute" />} />
+        <Route path="/credit-card-dispute" element={<ComingSoon feature="Credit Card Dispute" />} />
+        <Route path="/debit-card-dispute" element={<ComingSoon feature="Debit Card Dispute" />} />
+        <Route path="/settings" element={<ComingSoon feature="Settings" />} />
       </Route>
 
       {/* 404 */}
