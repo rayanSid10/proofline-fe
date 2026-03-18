@@ -66,33 +66,44 @@ export function LoginPage({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary">
-              <Shield className="h-6 w-6 text-primary-foreground" />
+    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-gradient-to-br from-[#1a4d8f] via-[#2064B7] to-[#1e5a9f]">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-white/5 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-white/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+      </div>
+
+      <Card className="w-full max-w-md shadow-2xl border-0 relative backdrop-blur-sm bg-white/95">
+        <CardHeader className="space-y-3 text-center pb-6">
+          <div className="flex justify-center mb-2">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2064B7] to-[#1a4d8f] shadow-lg">
+              <Shield className="h-8 w-8 text-white" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">ProofLine</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#2064B7] to-[#1a4d8f] bg-clip-text text-transparent">
+            ProofLine
+          </CardTitle>
+          <CardDescription className="text-base text-gray-600">
             Fraud Investigation Platform
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             {loginError && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 animate-slide-in">
                 {loginError}
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-gray-700 font-medium">
+                Email Address
+              </Label>
               <Input
                 id="email"
                 type="email"
                 placeholder="name@example.com"
+                className="h-11 border-gray-200 focus:border-[#2064B7] focus:ring-[#2064B7] transition-colors"
                 {...register('email', {
                   required: 'Email is required',
                   pattern: {
@@ -102,17 +113,20 @@ export function LoginPage({ onLogin }) {
                 })}
               />
               {errors.email && (
-                <p className="text-sm text-destructive">{errors.email.message}</p>
+                <p className="text-sm text-red-600 animate-slide-in">{errors.email.message}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-gray-700 font-medium">
+                Password
+              </Label>
               <div className="relative">
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Enter your password"
+                  className="h-11 border-gray-200 focus:border-[#2064B7] focus:ring-[#2064B7] transition-colors pr-10"
                   {...register('password', {
                     required: 'Password is required',
                   })}
@@ -121,27 +135,45 @@ export function LoginPage({ onLogin }) {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent text-gray-400 hover:text-[#2064B7]"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    <EyeOff className="h-4 w-4" />
                   ) : (
-                    <Eye className="h-4 w-4 text-muted-foreground" />
+                    <Eye className="h-4 w-4" />
                   )}
                 </Button>
               </div>
               {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
+                <p className="text-sm text-red-600 animate-slide-in">{errors.password.message}</p>
               )}
             </div>
           </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign in'}
+          <CardFooter className="flex flex-col space-y-4 pt-6">
+            <Button
+              type="submit"
+              className="w-full h-11 bg-gradient-to-r from-[#2064B7] to-[#1a4d8f] hover:from-[#1a4d8f] hover:to-[#2064B7] text-white font-medium shadow-lg hover:shadow-xl transition-all duration-300"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Signing in...
+                </span>
+              ) : (
+                'Sign In'
+              )}
             </Button>
           </CardFooter>
         </form>
+
+        {/* Footer */}
+        <div className="px-6 pb-6 text-center">
+          <p className="text-xs text-gray-500">
+            © 2025 ProofLine. All rights reserved.
+          </p>
+        </div>
       </Card>
     </div>
   );
