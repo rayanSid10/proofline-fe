@@ -1,4 +1,4 @@
-import { Bell, LogOut, Settings, User } from 'lucide-react';
+import { LogOut, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,20 +30,6 @@ export function Header({ user, onLogout }) {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Role Badge */}
-        <Badge variant="secondary" className="hidden sm:inline-flex">
-          {roleLabel}
-        </Badge>
-
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-white">
-            3
-          </span>
-          <span className="sr-only">Notifications</span>
-        </Button>
-
         {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -64,14 +50,12 @@ export function Header({ user, onLogout }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="mr-2 h-4 w-4" />
-              <span>Profile</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Settings className="mr-2 h-4 w-4" />
-              <span>Settings</span>
-            </DropdownMenuItem>
+            <div className="px-2 py-1.5 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+              <Badge variant="secondary" className="text-xs">
+                {roleLabel}
+              </Badge>
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onLogout} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />

@@ -104,7 +104,7 @@ function getMenuItems(role) {
     });
   }
 
-  if (isBranchUser(role) || canAccessFTDH(role)) {
+  if (isBranchUser(role)) {
     items.push({
       title: 'FTDH Branch',
       icon: Building2,

@@ -125,25 +125,14 @@ export function FTDHOutwardPage() {
             Manage Inward FTDH cases here
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="h-[44px] px-4 text-[15px] border-[#111] text-[#4C4C4C] hover:bg-[#f8f8f8] gap-2 rounded-[6px]"
-            onClick={() => setTypeModalOpen(true)}
-          >
-            <Plus className="h-5 w-5" />
-            Add
-          </Button>
-          <Button
-            variant="outline"
-            className="h-[44px] px-4 text-[15px] border-[#111] text-[#4C4C4C] hover:bg-[#f8f8f8] gap-2 rounded-[6px]"
-            disabled
-            title="Import functionality coming soon"
-          >
-            <Upload className="h-5 w-5" />
-            Import
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          className="h-9 px-5 text-sm border-gray-300 text-gray-700 hover:bg-gray-50 gap-2"
+          onClick={() => setTypeModalOpen(true)}
+        >
+          <Plus className="h-4 w-4" />
+          Add
+        </Button>
       </div>
 
       <div className="rounded-[8px] border border-[#DAE1E7] bg-[#F9FAFB] p-6 mb-3 shrink-0">
@@ -154,11 +143,11 @@ export function FTDHOutwardPage() {
               placeholder="Search by Account number, IBAN"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 h-[50px] text-[16px] border-[#DAE1E7] placeholder:text-[#AFAFAF] bg-white rounded-[10px]"
+              className="pl-10 h-9 text-sm border-[#DAE1E7] placeholder:text-[#AFAFAF] bg-white rounded-[10px]"
             />
           </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger className="w-[205px] h-[50px] text-[16px] bg-white border-[#DAE1E7] rounded-[10px]">
+            <SelectTrigger className="w-[205px] h-9 text-sm bg-white border-[#DAE1E7] rounded-[10px]">
               <SelectValue placeholder="All Roles" />
             </SelectTrigger>
             <SelectContent>
@@ -167,7 +156,7 @@ export function FTDHOutwardPage() {
           </Select>
           <Button
             variant="outline"
-            className="h-[50px] px-5 text-[16px] border-[#DAE1E7] text-[#4C4C4C] hover:bg-gray-50 rounded-[10px] gap-2"
+            className="h-9 px-5 text-sm border-[#DAE1E7] text-[#4C4C4C] hover:bg-gray-50 rounded-[10px] gap-2"
           >
             <SlidersHorizontal className="h-4 w-4" />
             More Filters
