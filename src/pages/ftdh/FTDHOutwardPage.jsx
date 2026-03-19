@@ -120,12 +120,7 @@ export function FTDHOutwardPage() {
     <div className="flex flex-col h-[calc(100vh-100px)] font-['Inter',sans-serif]">
       <div className="flex items-start justify-between mb-5 shrink-0">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-[28px] font-semibold text-[#4C4C4C] leading-tight">Outward FTDH</h1>
-            {newCount > 0 && (
-              <span className="text-[12px] font-semibold bg-[#2592FF] text-white px-1.5 py-[2px] rounded-[3px] leading-none">{newCount} New</span>
-            )}
-          </div>
+          <h1 className="text-[28px] font-semibold text-[#4C4C4C] leading-tight">Outward FTDH</h1>
           <p className="text-[16px] font-medium text-[#AFAFAF] mt-1">
             Manage Inward FTDH cases here
           </p>
@@ -255,16 +250,6 @@ export function FTDHOutwardPage() {
         )}
 
         <div className="absolute bottom-0 left-0 h-[13px] w-full bg-[#EDF1F4]" />
-      </div>
-
-      <div className="flex items-center justify-between text-[16px] text-gray-400 pt-4 shrink-0">
-        <span>
-          © 2025, Made by <span className="text-[#2064B7] font-medium">ProofLine</span>
-        </span>
-        <div className="flex gap-4">
-          <a href="#" className="text-[#2064B7] hover:underline">License</a>
-          <a href="#" className="text-[#2064B7] hover:underline">Support</a>
-        </div>
       </div>
 
       <FTDHOutwardTypeModal

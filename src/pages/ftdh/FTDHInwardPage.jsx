@@ -206,14 +206,9 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
       {/* Header */}
       <div className="flex items-start justify-between mb-5 shrink-0">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-[22px] font-bold text-gray-900 leading-tight">
-              Inward FTDH
-            </h1>
-            <span className="text-[10px] font-semibold bg-[#2592FF] text-white px-2 py-0.5 rounded-full">
-              {filteredCases.length} New
-            </span>
-          </div>
+          <h1 className="text-[22px] font-bold text-gray-900 leading-tight">
+            Inward FTDH
+          </h1>
           <p className="text-[13px] text-gray-500 mt-0.5">
             Manage Inward FTDH cases here
           </p>
@@ -444,18 +439,6 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
               )}
             </TableBody>
           </Table>
-        </div>
-      </div>
-
-      {/* Page Footer — always at bottom */}
-      <div className="flex items-center justify-between text-xs text-gray-400 pt-4 shrink-0">
-        <span>
-          © 2025, Made by{' '}
-          <span className="text-[#2064B7] font-medium">ProofLine</span>
-        </span>
-        <div className="flex gap-4">
-          <a href="#" className="text-[#2064B7] hover:underline">License</a>
-          <a href="#" className="text-[#2064B7] hover:underline">Support</a>
         </div>
       </div>
 

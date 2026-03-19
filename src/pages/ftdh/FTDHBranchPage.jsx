@@ -330,18 +330,6 @@ export function FTDHBranchPage({ currentRole = 'branch_user' }) {
         )}
       </div>
 
-      {/* Page Footer */}
-      <div className="flex items-center justify-between text-[16px] text-gray-400 pt-4 shrink-0 font-['Inter',sans-serif]">
-        <span>
-          © 2025, Made by{' '}
-          <span className="text-[#2064B7] font-medium">ProofLine</span>
-        </span>
-        <div className="flex gap-4">
-          <a href="#" className="text-[#2064B7] hover:underline">License</a>
-          <a href="#" className="text-[#2064B7] hover:underline">Support</a>
-        </div>
-      </div>
-
       {/* Update Modal */}
       <FTDHCaseUpdateModal
         open={updateModalOpen}

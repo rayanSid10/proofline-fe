@@ -171,7 +171,7 @@ export function LoginPage({ onLogin }) {
         {/* Footer */}
         <div className="px-6 pb-6 text-center">
           <p className="text-xs text-gray-500">
-            © 2025 ProofLine. All rights reserved.
+            © 2026 ProofLine. All rights reserved.
           </p>
         </div>
       </Card>

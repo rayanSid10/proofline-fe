@@ -90,7 +90,6 @@ function getMenuItems(role) {
       title: 'FTDH Inward',
       icon: Clock,
       path: '/ftdh',
-      badge: '10 New',
       isActive: (pathname) => {
         if (pathname.startsWith('/ftdh/outward') || pathname.startsWith('/ftdh/branch')) return false;
         return pathname === '/ftdh' || /^\/ftdh\/[A-Za-z0-9_-]+$/.test(pathname);
@@ -199,7 +198,7 @@ function SidebarContent({ collapsed = false, currentRole, onLogout }) {
       {/* Copyright */}
       {!collapsed && (
         <div className="px-4 pb-3 text-[10px] text-white/40 text-center">
-          © 2025, Made by ProofLine
+          © 2026 ProofLine. All rights reserved.
         </div>
       )}
     </div>

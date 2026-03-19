@@ -1560,18 +1560,6 @@ export function FTDHBranchDetailPage({ currentRole = 'branch_user' }) {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-gray-400 pt-4 shrink-0">
-        <span>
-          © 2025, Made by{' '}
-          <span className="text-[#2064B7] font-medium">ProofLine</span>
-        </span>
-        <div className="flex gap-4">
-          <a href="#" className="text-[#2064B7] hover:underline">License</a>
-          <a href="#" className="text-[#2064B7] hover:underline">Support</a>
-        </div>
-      </div>
-
       {/* Loading Overlay */}
       {isSubmitting && (
         <div className="fixed inset-0 z-[100] bg-black/30 flex items-center justify-center">
