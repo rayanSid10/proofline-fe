@@ -9,6 +9,9 @@ import {
   Trash2,
   Plus,
   Loader2,
+  GitBranch,
+  Building2,
+  Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +23,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { ftdhAPI } from '@/api/ftdh';
 import {
   FTDHOutwardTypeModal,
@@ -53,7 +63,11 @@ const EmptyStateIcon = () => (
 export function FTDHOutwardPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [ftdhTypeFilter, setFtdhTypeFilter] = useState('all');
+  const [targetBankFilter, setTargetBankFilter] = useState('all');
+  const [slaFilter, setSlaFilter] = useState('all');
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [typeModalOpen, setTypeModalOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [layeringModalOpen, setLayeringModalOpen] = useState(false);
@@ -65,7 +79,15 @@ export function FTDHOutwardPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await ftdhAPI.listOutward();
+
+      // Build filter params
+      const params = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (ftdhTypeFilter !== 'all') params.ftdh_type = ftdhTypeFilter;
+      if (targetBankFilter !== 'all') params.target_bank = targetBankFilter;
+      if (slaFilter !== 'all') params.sla_breached = slaFilter === 'breached';
+
+      const res = await ftdhAPI.listOutward(params);
       setCases(res.data?.results || res.data || []);
     } catch (err) {
       console.error('Failed to load outward cases:', err);
@@ -77,7 +99,7 @@ export function FTDHOutwardPage() {
 
   useEffect(() => {
     fetchCases();
-  }, []);
+  }, [statusFilter, ftdhTypeFilter, targetBankFilter, slaFilter]);
 
   const outwardCases = useMemo(() => {
     return cases.map((c) => {
@@ -99,6 +121,7 @@ export function FTDHOutwardPage() {
   }, [cases]);
 
   const filteredCases = useMemo(() => {
+    // Search query filter (frontend-only for real-time search)
     if (!searchQuery.trim()) return outwardCases;
     const q = searchQuery.toLowerCase();
     return outwardCases.filter((c) =>
@@ -111,6 +134,12 @@ export function FTDHOutwardPage() {
   }, [outwardCases, searchQuery]);
 
   const newCount = cases.filter((c) => c.status === 'FILED').length;
+
+  // Get unique target banks for filter dropdown
+  const uniqueTargetBanks = useMemo(() => {
+    const banks = new Set(cases.map((c) => c.targetBank).filter(Boolean));
+    return Array.from(banks).sort();
+  }, [cases]);
 
   const handleCaseCreated = () => {
     fetchCases();
@@ -146,21 +175,153 @@ export function FTDHOutwardPage() {
               className="pl-10 h-9 text-sm border-[#DAE1E7] placeholder:text-[#AFAFAF] bg-white rounded-[10px]"
             />
           </div>
-          <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[205px] h-9 text-sm bg-white border-[#DAE1E7] rounded-[10px]">
-              <SelectValue placeholder="All Roles" />
+              <SelectValue placeholder="All Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="FILED">Filed</SelectItem>
+              <SelectItem value="ACKNOWLEDGED">Acknowledged</SelectItem>
+              <SelectItem value="RESPONDED">Responded</SelectItem>
+              <SelectItem value="CLOSED">Closed</SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            className="h-9 px-5 text-sm border-[#DAE1E7] text-[#4C4C4C] hover:bg-gray-50 rounded-[10px] gap-2"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            More Filters
-          </Button>
+          <Dialog open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-9 px-5 text-sm border-[#DAE1E7] text-[#4C4C4C] hover:bg-gray-50 rounded-[10px] gap-2"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                More Filters
+                {(ftdhTypeFilter !== 'all' || targetBankFilter !== 'all' || slaFilter !== 'all') && (
+                  <span className="ml-1 h-2 w-2 rounded-full bg-[#2064B7]" />
+                )}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[620px]">
+              <DialogHeader className="border-b pb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-[#2064B7]/10 flex items-center justify-center">
+                    <SlidersHorizontal className="h-4 w-4 text-[#2064B7]" />
+                  </div>
+                  <DialogTitle className="text-lg font-semibold text-[#4C4C4C]">
+                    Additional Filters
+                  </DialogTitle>
+                </div>
+              </DialogHeader>
+
+              <div className="py-6">
+                <div className="grid grid-cols-2 gap-6">
+                  {/* FTDH Type Filter */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-md bg-blue-50 flex items-center justify-center">
+                        <GitBranch className="h-3.5 w-3.5 text-[#2064B7]" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-sm font-semibold text-[#4C4C4C] block">
+                          FTDH Type
+                        </label>
+                        <p className="text-xs text-[#AFAFAF] mt-0.5">
+                          Filter by transaction flow
+                        </p>
+                      </div>
+                    </div>
+                    <Select value={ftdhTypeFilter} onValueChange={setFtdhTypeFilter}>
+                      <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        <SelectItem value="ONUS">OnUs (Same Bank)</SelectItem>
+                        <SelectItem value="LAYERING">Layering (Different Bank)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Target Bank Filter */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-md bg-green-50 flex items-center justify-center">
+                        <Building2 className="h-3.5 w-3.5 text-green-600" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-sm font-semibold text-[#4C4C4C] block">
+                          Target Bank
+                        </label>
+                        <p className="text-xs text-[#AFAFAF] mt-0.5">
+                          Bank where funds were layered
+                        </p>
+                      </div>
+                    </div>
+                    <Select value={targetBankFilter} onValueChange={setTargetBankFilter}>
+                      <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                        <SelectValue placeholder="Select bank" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Banks</SelectItem>
+                        {uniqueTargetBanks.map((bank) => (
+                          <SelectItem key={bank} value={bank}>
+                            {bank}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* SLA Status Filter - Full Width */}
+                  <div className="space-y-2.5 col-span-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-md bg-orange-50 flex items-center justify-center">
+                        <Clock className="h-3.5 w-3.5 text-orange-600" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-sm font-semibold text-[#4C4C4C] block">
+                          SLA Status
+                        </label>
+                        <p className="text-xs text-[#AFAFAF] mt-0.5">
+                          10-day response window
+                        </p>
+                      </div>
+                    </div>
+                    <Select value={slaFilter} onValueChange={setSlaFilter}>
+                      <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                        <SelectValue placeholder="Select SLA status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All SLA Status</SelectItem>
+                        <SelectItem value="within">Within SLA</SelectItem>
+                        <SelectItem value="breached">SLA Breached</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  className="flex-1 h-10 border-[#DAE1E7] hover:bg-gray-50"
+                  onClick={() => {
+                    setFtdhTypeFilter('all');
+                    setTargetBankFilter('all');
+                    setSlaFilter('all');
+                  }}
+                >
+                  Clear All
+                </Button>
+                <Button
+                  className="flex-1 h-10 bg-[#2064B7] hover:bg-[#1a4d8f] shadow-sm"
+                  onClick={() => setMoreFiltersOpen(false)}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 

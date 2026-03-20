@@ -7,6 +7,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  GitBranch,
+  Building2,
+  Clock,
+  DollarSign,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -71,7 +82,11 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [caseStatusFilter, setCaseStatusFilter] = useState('all');
+  const [fundsStatusFilter, setFundsStatusFilter] = useState('all');
+  const [layeringFilter, setLayeringFilter] = useState('all');
+  const [slaFilter, setSlaFilter] = useState('all');
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState([]);
   const [page, setPage] = useState(0);
 
@@ -121,7 +136,15 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
       try {
         setLoading(true);
         setError(null);
-        const response = await ftdhAPI.listInward();
+
+        // Build filter params
+        const params = {};
+        if (caseStatusFilter !== 'all') params.case_status = caseStatusFilter;
+        if (fundsStatusFilter !== 'all') params.funds_status = fundsStatusFilter;
+        if (layeringFilter !== 'all') params.layering_detected = layeringFilter === 'yes';
+        if (slaFilter !== 'all') params.sla_breached = slaFilter === 'breached';
+
+        const response = await ftdhAPI.listInward(params);
         const payload = Array.isArray(response.data)
           ? response.data
           : (response.data?.results || []);
@@ -134,7 +157,7 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
     };
 
     loadCases();
-  }, []);
+  }, [caseStatusFilter, fundsStatusFilter, layeringFilter, slaFilter]);
 
   // Handle Generate Report: close update modal → show loading → open report
   const handleGenerateReport = useCallback((formData) => {
@@ -259,31 +282,163 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
       )}
 
       {/* Search + Filters Row */}
-      <div className="flex items-center gap-3 mb-4 shrink-0">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search by Account number, IBAN"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-9 text-sm border-gray-200 placeholder:text-gray-400 bg-white"
-          />
+      <div className="rounded-[8px] border border-[#DAE1E7] bg-[#F9FAFB] p-6 mb-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#AFAFAF]" />
+            <Input
+              placeholder="Search by Account number, IBAN"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 h-9 text-sm border-[#DAE1E7] placeholder:text-[#AFAFAF] bg-white rounded-[10px]"
+            />
+          </div>
+          <Select value={caseStatusFilter} onValueChange={setCaseStatusFilter}>
+            <SelectTrigger className="w-[220px] h-9 text-sm bg-white border-[#DAE1E7] rounded-[10px] shrink-0">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="awaiting_branch">Awaiting Branch Response</SelectItem>
+              <SelectItem value="branch_received">Branch Response Received</SelectItem>
+              <SelectItem value="awaiting_member">Awaiting Member Bank Response</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Dialog open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-9 px-5 text-sm border-[#DAE1E7] text-[#4C4C4C] hover:bg-gray-50 rounded-[10px] shrink-0 gap-2"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                More Filters
+                {(fundsStatusFilter !== 'all' || layeringFilter !== 'all' || slaFilter !== 'all') && (
+                  <span className="ml-1 h-2 w-2 rounded-full bg-[#2064B7]" />
+                )}
+              </Button>
+            </DialogTrigger>
+          <DialogContent className="sm:max-w-[620px]">
+            <DialogHeader className="border-b pb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-[#2064B7]/10 flex items-center justify-center">
+                  <SlidersHorizontal className="h-4 w-4 text-[#2064B7]" />
+                </div>
+                <DialogTitle className="text-lg font-semibold text-[#4C4C4C]">
+                  Additional Filters
+                </DialogTitle>
+              </div>
+            </DialogHeader>
+
+            <div className="py-6">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Funds Status Filter */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-md bg-green-50 flex items-center justify-center">
+                      <DollarSign className="h-3.5 w-3.5 text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-sm font-semibold text-[#4C4C4C] block">
+                        Funds Status
+                      </label>
+                      <p className="text-xs text-[#AFAFAF] mt-0.5">
+                        Recovery feasibility
+                      </p>
+                    </div>
+                  </div>
+                  <Select value={fundsStatusFilter} onValueChange={setFundsStatusFilter}>
+                    <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                      <SelectValue placeholder="Select funds status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Funds Status</SelectItem>
+                      <SelectItem value="SF">SF (Sufficient Funds)</SelectItem>
+                      <SelectItem value="NSF">NSF (Non-Sufficient Funds)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Layering Detection Filter */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-md bg-blue-50 flex items-center justify-center">
+                      <GitBranch className="h-3.5 w-3.5 text-[#2064B7]" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-sm font-semibold text-[#4C4C4C] block">
+                        Layering Detected
+                      </label>
+                      <p className="text-xs text-[#AFAFAF] mt-0.5">
+                        Funds moved to another bank
+                      </p>
+                    </div>
+                  </div>
+                  <Select value={layeringFilter} onValueChange={setLayeringFilter}>
+                    <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                      <SelectValue placeholder="Select layering status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Cases</SelectItem>
+                      <SelectItem value="yes">Layering Detected</SelectItem>
+                      <SelectItem value="no">No Layering</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* SLA Status Filter - Full Width */}
+                <div className="space-y-2.5 col-span-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-md bg-orange-50 flex items-center justify-center">
+                      <Clock className="h-3.5 w-3.5 text-orange-600" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-sm font-semibold text-[#4C4C4C] block">
+                        SLA Status
+                      </label>
+                      <p className="text-xs text-[#AFAFAF] mt-0.5">
+                        10-day response window to 1LINK
+                      </p>
+                    </div>
+                  </div>
+                  <Select value={slaFilter} onValueChange={setSlaFilter}>
+                    <SelectTrigger className="h-10 text-sm bg-white border-[#DAE1E7] hover:border-[#2064B7]/50 rounded-lg transition-colors">
+                      <SelectValue placeholder="Select SLA status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All SLA Status</SelectItem>
+                      <SelectItem value="within">Within SLA</SelectItem>
+                      <SelectItem value="breached">SLA Breached</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                variant="outline"
+                className="flex-1 h-10 border-[#DAE1E7] hover:bg-gray-50"
+                onClick={() => {
+                  setFundsStatusFilter('all');
+                  setLayeringFilter('all');
+                  setSlaFilter('all');
+                }}
+              >
+                Clear All
+              </Button>
+              <Button
+                className="flex-1 h-10 bg-[#2064B7] hover:bg-[#1a4d8f] shadow-sm"
+                onClick={() => setMoreFiltersOpen(false)}
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
         </div>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-[140px] h-9 text-sm bg-white border-gray-200 shrink-0">
-            <SelectValue placeholder="All Roles" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Roles</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          className="h-9 px-4 text-sm border-gray-200 text-gray-600 hover:bg-gray-50 shrink-0 gap-2"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          More Filters
-        </Button>
       </div>
 
       {/* Table Container — fills remaining space */}
@@ -336,13 +491,13 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
           <Table>
             <TableHeader>
               <TableRow className="bg-white hover:bg-white border-b border-gray-100">
-                <TableHead className="text-xs text-gray-500 font-medium pl-4">Dispute ID</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Sender</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Beneficiary</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Trx Date & Time</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Stan</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Trx Amount</TableHead>
-                <TableHead className="text-xs text-gray-500 font-medium">Status</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium pl-4">Dispute ID</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Sender</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Beneficiary</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Trx Date & Time</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Stan</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Trx Amount</TableHead>
+                <TableHead className="text-[14px] text-[#4C4C4C]/65 font-medium">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -382,43 +537,43 @@ export function FTDHInwardPage({ currentRole = 'ftdh_officer' }) {
                     >
                       <TableCell className="py-3.5 pl-4">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">
+                          <div className="text-[16px] font-medium text-[#4C4C4C]">
                             {init.disputeId?.replace('FTDH-INW-', 'IBFT-') || init.disputeId}
                           </div>
-                          <div className="text-[11px] text-gray-400 mt-0.5 font-mono">
+                          <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
                             {init.senderAccount?.slice(0, 16)}...
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="py-3.5">
                         <div>
-                          <div className="text-sm text-gray-900 font-medium">
+                          <div className="text-[16px] text-[#4C4C4C] font-medium">
                             {init.sendingBank?.split(' ')[0] || '—'}
                           </div>
-                          <div className="text-[11px] text-gray-400 mt-0.5 font-mono">
+                          <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
                             {init.senderAccount || '—'}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="py-3.5">
                         <div>
-                          <div className="text-sm text-gray-900 font-medium">
+                          <div className="text-[16px] text-[#4C4C4C] font-medium">
                             {init.receivingBank?.split('(')[0]?.trim()?.split(' ')[0] || '—'}
                           </div>
-                          <div className="text-[11px] text-gray-400 mt-0.5 font-mono">
+                          <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
                             {init.beneficiaryAccount || '—'}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="py-3.5 text-sm text-gray-600 whitespace-nowrap">
+                      <TableCell className="py-3.5 text-[14px] text-[#4C4C4C] whitespace-nowrap">
                         {init.transactionDateTime
                           ? formatDateTime(init.transactionDateTime)
                           : '—'}
                       </TableCell>
-                      <TableCell className="py-3.5 text-sm text-gray-600 font-mono">
+                      <TableCell className="py-3.5 text-[16px] text-[#4C4C4C] font-medium font-mono">
                         {init.stan || '—'}
                       </TableCell>
-                      <TableCell className="py-3.5 text-sm text-gray-900 font-medium whitespace-nowrap">
+                      <TableCell className="py-3.5 text-[14px] text-[#4C4C4C] font-semibold whitespace-nowrap">
                         {init.amount ? formatAmount(init.amount) : '—'}
                       </TableCell>
                       <TableCell className="py-3.5">
