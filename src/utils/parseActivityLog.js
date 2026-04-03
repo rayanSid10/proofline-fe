@@ -1,17 +1,107 @@
 /**
  * Activity Log Parser
  *
- * Supports TWO input formats:
+ * This module provides two parsing approaches:
  *
- * A) Unstructured text (.txt) — sentence-based keyword matching
- *    Mapped fields: ioCallMade, initialCustomerStance, deviceBlockedFlag, frmAlert
+ * 1. GEMINI API (ACTIVE) - parseActivityLogWithGemini()
+ *    Uses Google Gemini via backend API for intelligent extraction
+ *    of investigation fields from activity logs. More accurate and flexible.
  *
- * B) Structured CSV (.csv) — columnar bank activity logs with 17 columns
- *    Mapped fields: loginId, initialDeviceId, loginIp, deviceChange, ipChange,
- *    newDevice, credentialChange, tpinChange, limitEnhanced, otpDelivered, txnPattern
+ * 2. RULE-BASED (COMMENTED) - parseActivityLog()
+ *    Original frontend-only rule-based extraction using regex patterns.
+ *    Kept for backwards compatibility if needed.
+ *
+ * The Gemini approach extracts MORE fields and handles edge cases better.
  */
 
-// ─── A) Unstructured text rules (existing) ───────────────────────────────────
+import { ibmbAPI } from '@/api/ibmb';
+
+// Human-readable labels (used for both Gemini and rule-based approaches)
+const FIELD_LABELS = {
+  // Text-based fields
+  ioCallMade: 'IO Call Made to Customer',
+  initialCustomerStance: 'Customer Stance as per Initial Call',
+  deviceBlockedFlag: 'Blocking of Observed Device',
+  frmAlert: 'FRM System Alert',
+  // CSV-based fields
+  loginId: 'Customer Login ID',
+  initialDeviceId: 'Initial Device at Registration',
+  loginIp: 'User IP / LAT-LONG',
+  deviceChange: 'Change in Device Detail',
+  ipChange: 'Change of IP / Location',
+  newDevice: 'New Device Registration',
+  credentialChange: 'Change in Login ID / Password',
+  tpinChange: 'Change in T-PIN',
+  limitEnhanced: 'Limit Enhancement',
+  otpDelivered: 'SMS / OTP Delivered',
+  txnPattern: 'Customer Disputed Transaction Pattern',
+  hblMobileAppActivityReview: 'HBL Mobile App Activity Review',
+};
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GEMINI API APPROACH (ACTIVE)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Parse activity log using the backend Gemini parser.
+ *
+ * This approach sends the activity log content to the backend, which uses
+ * Google Gemini for intelligent extraction of investigation fields.
+ *
+ * @param {File} file - The activity log file to parse
+ * @returns {Promise<{ matches: Array, unmatchedLines: string[], summary: Object, source: string }>}
+ */
+export async function parseActivityLogWithGemini(file) {
+  try {
+    const response = await ibmbAPI.parseActivityLog(file);
+    const result = response.data;
+
+    // Ensure consistent structure
+    return {
+      matches: result.matches || [],
+      unmatchedLines: [], // Gemini doesn't return unmatched lines
+      summary: result.summary || {},
+      source: result.source || 'gemini',
+      model: result.model,
+      isCSV: result.isCSV ?? true,
+    };
+  } catch (error) {
+    console.error('Gemini parsing failed:', error);
+
+    // Return error structure
+    return {
+      matches: [],
+      unmatchedLines: [],
+      summary: {},
+      source: 'gemini',
+      error: error.response?.data?.detail || error.message || 'Failed to parse activity log',
+    };
+  }
+}
+
+/**
+ * Convert parsed matches to a flat object suitable for merging into form state.
+ * Works with both Gemini and rule-based parsing results.
+ *
+ * @param {Array} matches - The matches array from parsing
+ * @returns {Object} - e.g. { loginId: 'mhassan1212', deviceChange: 'no', ... }
+ */
+export function matchesToFormState(matches) {
+  const state = {};
+  for (const m of matches) {
+    state[m.field] = m.value;
+  }
+  return state;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RULE-BASED APPROACH (COMMENTED - KEPT FOR BACKWARDS COMPATIBILITY)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/*
+// ─── A) Unstructured text rules ───────────────────────────────────────────────
 
 const TEXT_FIELD_RULES = [
   {
@@ -65,27 +155,6 @@ const TEXT_FIELD_RULES = [
     },
   },
 ];
-
-// Human-readable labels (used for both text & CSV matches)
-const FIELD_LABELS = {
-  // Text-based fields
-  ioCallMade: 'IO Call Made to Customer',
-  initialCustomerStance: 'Customer Stance as per Initial Call',
-  deviceBlockedFlag: 'Blocking of Observed Device',
-  frmAlert: 'FRM System Alert',
-  // CSV-based fields
-  loginId: 'Customer Login ID',
-  initialDeviceId: 'Initial Device at Registration',
-  loginIp: 'User IP / LAT-LONG',
-  deviceChange: 'Change in Device Detail',
-  ipChange: 'Change of IP / Location',
-  newDevice: 'New Device Registration',
-  credentialChange: 'Change in Login ID / Password',
-  tpinChange: 'Change in T-PIN',
-  limitEnhanced: 'Limit Enhancement',
-  otpDelivered: 'SMS / OTP Delivered',
-  txnPattern: 'Customer Disputed Transaction Pattern',
-};
 
 // ─── B) Structured CSV column header signatures ──────────────────────────────
 
@@ -166,10 +235,6 @@ const API_PATTERNS = {
 
 // ─── Detect format ───────────────────────────────────────────────────────────
 
-/**
- * Determine if rawText is a structured CSV activity log.
- * Checks whether the first non-empty line contains known CSV column headers.
- */
 function isStructuredCSV(rawText) {
   const firstLine = rawText.split(/[\n\r]+/).find(l => l.trim().length > 0) || '';
   const lower = firstLine.toLowerCase();
@@ -179,9 +244,6 @@ function isStructuredCSV(rawText) {
 
 // ─── CSV parsing helpers ─────────────────────────────────────────────────────
 
-/**
- * Parse a CSV header row and return a map of column name → index.
- */
 function resolveColumnIndices(headerCells) {
   const indices = {};
   for (const [key, pattern] of Object.entries(EXPECTED_COLUMNS)) {
@@ -191,9 +253,6 @@ function resolveColumnIndices(headerCells) {
   return indices;
 }
 
-/**
- * Simple CSV row splitter (handles quoted values with commas).
- */
 function splitCSVRow(row) {
   const cells = [];
   let current = '';
@@ -213,17 +272,11 @@ function splitCSVRow(row) {
   return cells;
 }
 
-/**
- * Check if a row is a "Note:" description row (not real data).
- */
 function isNoteRow(cells) {
   const joined = cells.slice(0, 3).join(' ').toLowerCase();
   return joined.includes('note:') || joined.includes('this header shows');
 }
 
-/**
- * Check if any pattern in a list matches the given text.
- */
 function matchesAny(text, patterns) {
   return patterns.some(p => p.test(text));
 }
@@ -231,9 +284,6 @@ function matchesAny(text, patterns) {
 
 // ─── CSV analysis ────────────────────────────────────────────────────────────
 
-/**
- * Analyze parsed CSV rows and return investigation field matches.
- */
 function analyzeCSVData(rows, colIdx) {
   const matches = [];
 
@@ -462,16 +512,11 @@ function analyzeCSVData(rows, colIdx) {
 }
 
 
-// ─── Main entry points ───────────────────────────────────────────────────────
+// ─── Main entry points (RULE-BASED - COMMENTED) ──────────────────────────────
 
-/**
- * Parse raw activity log text and return matched form field values.
- *
- * Auto-detects structured CSV vs unstructured text.
- *
- * @param {string} rawText - The raw text content from the uploaded file
- * @returns {{ matches: Array<{field: string, value: string, sentence: string, label: string, type: string}>, unmatchedLines: string[] }}
- */
+// This is the original rule-based parsing function.
+// It is kept for backwards compatibility but is no longer the primary approach.
+
 export function parseActivityLog(rawText) {
   if (isStructuredCSV(rawText)) {
     return parseStructuredCSV(rawText);
@@ -479,9 +524,6 @@ export function parseActivityLog(rawText) {
   return parseUnstructuredText(rawText);
 }
 
-/**
- * Parse structured CSV activity log.
- */
 function parseStructuredCSV(rawText) {
   const lines = rawText
     .split(/[\n\r]+/)
@@ -514,9 +556,6 @@ function parseStructuredCSV(rawText) {
   return { matches, unmatchedLines };
 }
 
-/**
- * Parse unstructured text activity log (original behavior).
- */
 function parseUnstructuredText(rawText) {
   const lines = rawText
     .split(/[\n\r]+/)
@@ -552,16 +591,91 @@ function parseUnstructuredText(rawText) {
 
   return { matches, unmatchedLines };
 }
+*/
+
+// ─── Legacy exports for backwards compatibility ──────────────────────────────
+// These allow existing code to work if parseActivityLog is still called directly
 
 /**
- * Convert parsed matches to a flat object suitable for merging into form state.
- * @param {Array} matches - The matches array from parseActivityLog
- * @returns {Object} - e.g. { loginId: 'mhassan1212', deviceChange: 'no', ... }
+ * Parse activity log using rule-based approach (synchronous, frontend-only).
+ *
+ * NOTE: This function is kept for backwards compatibility.
+ * For better extraction, use parseActivityLogWithGemini() instead.
+ *
+ * @param {string} rawText - Raw text content from the uploaded file
+ * @returns {{ matches: Array, unmatchedLines: string[] }}
  */
-export function matchesToFormState(matches) {
-  const state = {};
-  for (const m of matches) {
-    state[m.field] = m.value;
+export function parseActivityLog(rawText) {
+  // Simplified rule-based parsing kept for fallback/offline use
+  const isCSV = rawText.split('\n')[0]?.toLowerCase().includes('customer login id');
+
+  if (isCSV) {
+    return parseStructuredCSVFallback(rawText);
   }
-  return state;
+
+  return { matches: [], unmatchedLines: rawText.split('\n') };
+}
+
+/**
+ * Fallback CSV parser - minimal implementation for offline/error cases.
+ */
+function parseStructuredCSVFallback(rawText) {
+  const lines = rawText.split(/[\n\r]+/).filter(l => l.trim());
+  if (lines.length < 2) return { matches: [], unmatchedLines: lines };
+
+  const headerCells = lines[0].split(',').map(c => c.trim().toLowerCase());
+  const loginIdIdx = headerCells.findIndex(c => c.includes('customer login id'));
+  const imeiIdx = headerCells.findIndex(c => c.includes('imei') || c.includes('device id'));
+  const ipIdx = headerCells.findIndex(c => c.includes('ip address'));
+
+  const loginIds = new Set();
+  const devices = new Set();
+  const ips = new Set();
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(',').map(c => c.trim());
+    if (loginIdIdx >= 0 && cells[loginIdIdx]) loginIds.add(cells[loginIdIdx]);
+    if (imeiIdx >= 0 && cells[imeiIdx]) devices.add(cells[imeiIdx]);
+    if (ipIdx >= 0 && cells[ipIdx]) ips.add(cells[ipIdx]);
+  }
+
+  const matches = [];
+
+  if (loginIds.size > 0) {
+    matches.push({
+      field: 'loginId',
+      value: [...loginIds][0],
+      sentence: `Customer Login ID: ${[...loginIds][0]}`,
+      label: FIELD_LABELS.loginId,
+      type: 'text',
+    });
+  }
+
+  if (devices.size > 0) {
+    matches.push({
+      field: 'initialDeviceId',
+      value: [...devices][0],
+      sentence: `Initial device: ${[...devices][0]}`,
+      label: FIELD_LABELS.initialDeviceId,
+      type: 'text',
+    });
+  }
+
+  matches.push({
+    field: 'deviceChange',
+    value: devices.size > 1 ? 'yes' : 'no',
+    sentence: devices.size > 1 ? 'Multiple devices detected' : 'No device change',
+    label: FIELD_LABELS.deviceChange,
+    type: 'choice',
+  });
+
+  matches.push({
+    field: 'ipChange',
+    value: ips.size > 1 ? 'yes' : 'no',
+    sentence: ips.size > 1 ? 'Multiple IPs detected' : 'No IP change',
+    label: FIELD_LABELS.ipChange,
+    type: 'choice',
+  });
+
+  return { matches, unmatchedLines: [] };
 }

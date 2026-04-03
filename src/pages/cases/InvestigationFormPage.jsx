@@ -11,7 +11,7 @@ import { SubmissionProgressBar } from '@/components/modals/SubmissionProgressBar
 import { SubmissionSuccessDialog } from '@/components/modals/SubmissionSuccessDialog';
 import { ibmbAPI } from '@/api/ibmb';
 import { listTranscriptionAudio } from '@/api/transcription';
-import { parseActivityLog, matchesToFormState } from '@/utils/parseActivityLog';
+import { parseActivityLogWithGemini, matchesToFormState } from '@/utils/parseActivityLog';
 import { TranscriptionPanel } from '@/components/panels/TranscriptionPanel';
 
 // ─── Icons (matching InvestigationModal) ──────────────────────────────────────
@@ -715,26 +715,59 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
   const handleDrop = (e) => { e.preventDefault(); setIsDragOver(false); handleFiles(e.dataTransfer.files); };
   const getFileExt = (name) => name.split('.').pop().toUpperCase();
 
-  // ─── Activity Log Upload Handler ─────────────────────────────────────────────
-  const handleActivityLogUpload = (e) => {
+  // ─── Activity Log Upload Handler (Gemini API) ────────────────────────────────
+  const [isParsingActivityLog, setIsParsingActivityLog] = useState(false);
+
+  const handleActivityLogUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target.result;
-      const result = parseActivityLog(text);
-      if (result.matches.length > 0) {
+
+    // Reset input so same file can be re-uploaded
+    e.target.value = '';
+
+    // Show loading state
+    setIsParsingActivityLog(true);
+    if (activityLogFeedbackTimerRef.current) {
+      clearTimeout(activityLogFeedbackTimerRef.current);
+      activityLogFeedbackTimerRef.current = null;
+    }
+    setShowLogBanner(false);
+    setAutoFilledFieldKeys(new Set());
+    toast.loading('Analyzing activity log with AI...', { id: 'activity-log-parse' });
+
+    try {
+      // Use Gemini API for intelligent extraction
+      const result = await parseActivityLogWithGemini(file);
+
+      // Dismiss loading toast
+      toast.dismiss('activity-log-parse');
+
+      if (result.error) {
+        setLogParseResult(null);
+        toast.error(`AI extraction failed: ${result.error}`);
+      } else if (result.matches.length > 0) {
         // Apply parsed values to form state
         const newValues = matchesToFormState(result.matches);
         setF(prev => ({ ...prev, ...newValues }));
         setIsDirty(true);
+
+        const highlightedKeys = new Set(result.matches.map(m => m.field));
+        setAutoFilledFieldKeys(highlightedKeys);
+        setLogParseResult(result);
+        setShowLogBanner(true);
+
+        // Show success with summary
+        const summary = result.summary || {};
+        const summaryText = summary.totalRows
+          ? ` (${summary.totalRows} rows, ${summary.devices || 0} devices, ${summary.failedLogins || 0} failed logins)`
+          : '';
+        toast.success(`AI extracted ${result.matches.length} fields${summaryText}`);
+      } else {
+        toast.warning('No fields could be extracted from the activity log');
+        setLogParseResult({ matches: [], source: 'gemini', summary: {} });
       }
 
-      const highlightedKeys = new Set(result.matches.map(m => m.field));
-      setAutoFilledFieldKeys(highlightedKeys);
-      setLogParseResult(result);
-      setShowLogBanner(true);
-
+      // Clear feedback after timeout
       if (activityLogFeedbackTimerRef.current) {
         clearTimeout(activityLogFeedbackTimerRef.current);
       }
@@ -743,10 +776,17 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
         setAutoFilledFieldKeys(new Set());
         activityLogFeedbackTimerRef.current = null;
       }, ACTIVITY_LOG_FEEDBACK_DURATION_MS);
-    };
-    reader.readAsText(file);
-    // Reset input so same file can be re-uploaded
-    e.target.value = '';
+
+    } catch (err) {
+      console.error('Activity log parsing error:', err);
+      toast.dismiss('activity-log-parse');
+      setShowLogBanner(false);
+      setAutoFilledFieldKeys(new Set());
+      setLogParseResult(null);
+      toast.error('Failed to parse activity log: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsParsingActivityLog(false);
+    }
   };
 
   if (loading) return (
@@ -814,9 +854,19 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 variant="outline"
                 className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
                 onClick={() => activityLogRef.current?.click()}
+                disabled={isParsingActivityLog}
               >
-                <Upload className="w-4 h-4" />
-                Upload Activity Log
+                {isParsingActivityLog ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    AI Extract from Log
+                  </>
+                )}
               </Button>
             )}
           </div>
@@ -855,14 +905,28 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 </div>
                 <div>
                   <p className="text-[13px] font-semibold text-[#166534]">
-                    Activity log extracted successfully — {logParseResult.matches.length} field{logParseResult.matches.length !== 1 ? 's' : ''} auto-populated.
+                    {logParseResult.source === 'gemini' ? 'AI extraction completed' : 'Activity log extracted'} — {logParseResult.matches.length} field{logParseResult.matches.length !== 1 ? 's' : ''} auto-populated.
                   </p>
-                  <p className="text-[12px] text-[#15803D] mt-1">Highlighted rows indicate updated fields.</p>
+                  <p className="text-[12px] text-[#15803D] mt-1">
+                    {logParseResult.source === 'gemini' && logParseResult.summary?.totalRows && (
+                      <span className="mr-2">
+                        Analyzed {logParseResult.summary.totalRows} rows • {logParseResult.summary.devices || 0} device(s) • {logParseResult.summary.failedLogins || 0} failed login(s)
+                      </span>
+                    )}
+                    Highlighted rows indicate updated fields.
+                  </p>
                 </div>
               </div>
-              <button onClick={clearActivityLogFeedback} className="text-[#166534] hover:text-[#14532D]">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {logParseResult.source === 'gemini' && (
+                  <span className="text-[10px] font-medium text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded-full">
+                    Gemini 1.5 Flash
+                  </span>
+                )}
+                <button onClick={clearActivityLogFeedback} className="text-[#166534] hover:text-[#14532D]">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1027,10 +1091,10 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Customer Call at Contact Centre (Date & Time)" required error={currentStepErrorKeys.has('cxCallDatetime')} output={f.cxCallDatetime ? `As per system, customer called helpline on ${formatDateTimeText(f.cxCallDatetime)}.` : '—'}>
                   <DateInputWithIcon type="datetime-local" value={f.cxCallDatetime} onChange={e => set('cxCallDatetime', e.target.value)} placeholder="Auto-picked from CX Excel" />
                 </FormField>
-                <FormField isInput label="Customer Stance as per Initial Call" required error={currentStepErrorKeys.has('initialCustomerStance')} large output={f.initialCustomerStance || 'Customer disowned the transactions, claimed fraud.'}>
+                <FormField isInput label="Customer Stance as per Initial Call" required error={currentStepErrorKeys.has('initialCustomerStance')} highlighted={autoFilledFieldKeys.has('initialCustomerStance')} large output={f.initialCustomerStance || 'Customer disowned the transactions, claimed fraud.'}>
                   <AutoGrowTextarea value={f.initialCustomerStance} onChange={e => set('initialCustomerStance', e.target.value)} placeholder="Enter customer's initial stance..." className="h-full" />
                 </FormField>
-                <FormField label="Call was made to the Customer" required error={currentStepErrorKeys.has('ioCallMade')} output={out('ioCallMade', f.ioCallMade)}>
+                <FormField label="Call was made to the Customer" required error={currentStepErrorKeys.has('ioCallMade')} highlighted={autoFilledFieldKeys.has('ioCallMade')} output={out('ioCallMade', f.ioCallMade)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.ioCallMade==='yes'} onChange={v => set('ioCallMade', v)} label="Yes" />
                     <ChipOption value="no" selected={f.ioCallMade==='no'} onChange={v => set('ioCallMade', v)} label="No" />
@@ -1081,7 +1145,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 <FormField isInput label="Source of IB/MB Channel Creation" required error={currentStepErrorKeys.has('mbCreationSource')} output={f.mbCreationSource ? `IB/MB channel creation source is ${f.mbCreationSource}.` : '—'}>
                   <Input value={f.mbCreationSource} onChange={e => set('mbCreationSource', e.target.value)} placeholder="Enter source of IB/MB channel creation" className="w-full h-full border-0 bg-transparent focus-visible:ring-0 px-4 py-2.5 rounded-none text-[13px]" />
                 </FormField>
-                <FormField label="HBL Mobile Application Channel Activity Review" required error={currentStepErrorKeys.has('hblMobileAppActivityReview')} output={out('hblMobileAppActivityReview', f.hblMobileAppActivityReview)}>
+                <FormField label="HBL Mobile Application Channel Activity Review" required error={currentStepErrorKeys.has('hblMobileAppActivityReview')} highlighted={autoFilledFieldKeys.has('hblMobileAppActivityReview')} output={out('hblMobileAppActivityReview', f.hblMobileAppActivityReview)}>
                   <div className="flex gap-3">
                     <ChipOption value="yes" selected={f.hblMobileAppActivityReview==='yes'} onChange={v => set('hblMobileAppActivityReview', v)} label="Yes" />
                     <ChipOption value="no" selected={f.hblMobileAppActivityReview==='no'} onChange={v => set('hblMobileAppActivityReview', v)} label="No" />

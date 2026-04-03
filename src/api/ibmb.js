@@ -52,6 +52,30 @@ export const ibmbAPI = {
 
   deleteInvestigationFile: (caseId, fileId) =>
     api.delete(`/ibmb/cases/${caseId}/investigation/files/${fileId}/`),
+
+  // ─── Activity Log Parsing (Gemini) ─────────────────────────────────
+  /**
+   * Parse activity log file using Gemini 1.5 Flash API.
+   *
+   * @param {File} file - The activity log file to parse
+   * @returns {Promise} - Response with extracted fields
+   */
+  parseActivityLog: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/ibmb/activity-log/parse/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /**
+   * Parse activity log content (raw text) using Gemini 1.5 Flash API.
+   *
+   * @param {string} content - Raw text content of the activity log
+   * @returns {Promise} - Response with extracted fields
+   */
+  parseActivityLogContent: (content) =>
+    api.post('/ibmb/activity-log/parse/', { content }),
 };
 
 export default ibmbAPI;
