@@ -49,3 +49,14 @@ export const listTranscriptionAudio = async (ownerType, ownerId) => {
 export const deleteTranscriptionAudio = async (id) => {
   await api.delete(`/transcription/${id}/`);
 };
+
+/**
+ * Translate a transcription to English using Gemini.
+ * Returns cached translation if already generated.
+ * @param {string} id - AudioFile UUID
+ * @returns {Promise<{ translation_text: string, cached: boolean }>}
+ */
+export const translateTranscription = async (id) => {
+  const { data } = await api.post(`/transcription/${id}/translate/`);
+  return data;
+};

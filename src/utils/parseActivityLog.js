@@ -76,6 +76,7 @@ export async function parseActivityLogWithGemini(file) {
       summary: {},
       source: 'gemini',
       error: error.response?.data?.detail || error.message || 'Failed to parse activity log',
+      error_code: error.response?.data?.error_code || null,
     };
   }
 }

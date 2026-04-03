@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Headphones, Upload, Mic, Play, Pause, Loader2, FileAudio, Trash2, X, AlertCircle } from 'lucide-react';
+import { Headphones, Upload, Mic, Play, Pause, Loader2, FileAudio, Trash2, X, AlertCircle, Languages, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import { uploadAudio, getTranscriptionStatus, deleteTranscriptionAudio } from '@/api/transcription';
+import { uploadAudio, getTranscriptionStatus, deleteTranscriptionAudio, translateTranscription } from '@/api/transcription';
 
 const FILE_TYPE_OPTIONS = [
   { value: 'cx_call', label: 'CX Call' },
@@ -31,6 +31,11 @@ function AudioCard({ file, onRemove, onUpdate, ownerContext }) {
     Boolean(file.backendId && IN_PROGRESS_STATUSES.has(file.backendStatus) && !file.transcriptionText)
   );
   const [transcription, setTranscription] = useState(file.transcriptionText || null);
+  const [transcriptionOpen, setTranscriptionOpen] = useState(true);
+  const [translation, setTranslation] = useState(file.translationText || null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationOpen, setTranslationOpen] = useState(false);
+  const [translationError, setTranslationError] = useState(null);
   const [error, setError] = useState(null);
   const audioRef = useRef(null);
   const pollRef = useRef(null);
@@ -46,10 +51,11 @@ function AudioCard({ file, onRemove, onUpdate, ownerContext }) {
 
         if (result.status === 'completed' && result.transcription) {
           const text = result.transcription.text;
+          const translationText = result.transcription.translation_text || null;
           setTranscription(text);
+          if (translationText) setTranslation(translationText);
           setIsTranscribing(false);
-          // Persist on file object so it survives sidebar close/reopen
-          onUpdate(file.id, { transcriptionText: text, backendStatus: 'completed' });
+          onUpdate(file.id, { transcriptionText: text, translationText, backendStatus: 'completed' });
           clearInterval(pollRef.current);
           pollRef.current = null;
         } else if (result.status === 'failed') {
@@ -118,6 +124,30 @@ function AudioCard({ file, onRemove, onUpdate, ownerContext }) {
       const detail = err.response?.data?.detail || err.message || 'Upload failed.';
       setError(detail);
       setIsTranscribing(false);
+    }
+  };
+
+  const handleTranslate = async () => {
+    if (!file.backendId) return;
+
+    // If translation already exists, just toggle visibility
+    if (translation) {
+      setTranslationOpen(prev => !prev);
+      return;
+    }
+
+    setIsTranslating(true);
+    setTranslationError(null);
+    try {
+      const result = await translateTranscription(file.backendId);
+      setTranslation(result.translation_text);
+      setTranslationOpen(true);
+      onUpdate(file.id, { translationText: result.translation_text });
+    } catch (err) {
+      const detail = err.response?.data?.detail || err.message || 'Translation failed.';
+      setTranslationError(detail);
+    } finally {
+      setIsTranslating(false);
     }
   };
 
@@ -208,13 +238,70 @@ function AudioCard({ file, onRemove, onUpdate, ownerContext }) {
 
         {/* Transcription Text */}
         {transcription && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-[#2064B7] uppercase tracking-wide">Transcription</span>
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-[200px] overflow-y-auto">
-              <p className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">{transcription}</p>
-            </div>
+          <div className="flex flex-col items-start gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] gap-1.5 px-2.5 border-[#2064B7]/30 text-[#2064B7] hover:bg-[#2064B7]/10 w-auto"
+              onClick={() => setTranscriptionOpen(prev => !prev)}
+            >
+              {transcriptionOpen ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              Transcription
+            </Button>
+            {transcriptionOpen && (
+              <div className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-[200px] overflow-y-auto">
+                <p className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">{transcription}</p>
+              </div>
+            )}
+
+            {/* Translate Button */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] gap-1.5 px-2.5 border-emerald-400/40 text-emerald-700 hover:bg-emerald-50 w-auto"
+              onClick={handleTranslate}
+              disabled={isTranslating}
+            >
+              {isTranslating ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Translating...
+                </>
+              ) : translation ? (
+                <>
+                  {translationOpen ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  Translation
+                </>
+              ) : (
+                <>
+                  <Languages className="w-3 h-3" />
+                  Translate
+                </>
+              )}
+            </Button>
+
+            {/* Translation Error */}
+            {translationError && (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-[11px] text-red-700">{translationError}</p>
+                  <button
+                    onClick={() => setTranslationError(null)}
+                    className="text-[10px] text-red-500 underline mt-0.5"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Translation Text (Collapsible) */}
+            {translation && translationOpen && (
+              <div className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-[200px] overflow-y-auto">
+                <p className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">{translation}</p>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

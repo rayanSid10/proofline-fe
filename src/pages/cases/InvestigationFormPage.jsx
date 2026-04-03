@@ -174,6 +174,7 @@ const mapServerAudioToPanelFile = (audio) => ({
   backendId: audio.id,
   backendStatus: audio.status,
   transcriptionText: audio.transcription?.text || null,
+  translationText: audio.transcription?.translation_text || null,
   uploadedAt: audio.created_at,
   serverFile: true,
 });
@@ -733,18 +734,19 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
     }
     setShowLogBanner(false);
     setAutoFilledFieldKeys(new Set());
-    toast.loading('Analyzing activity log with AI...', { id: 'activity-log-parse' });
 
     try {
       // Use Gemini API for intelligent extraction
       const result = await parseActivityLogWithGemini(file);
 
-      // Dismiss loading toast
-      toast.dismiss('activity-log-parse');
-
       if (result.error) {
-        setLogParseResult(null);
-        toast.error(`AI extraction failed: ${result.error}`);
+        if (result.error_code === 'RATE_LIMIT') {
+          setLogParseResult({ matches: [], source: 'gemini', summary: {}, warning: result.error });
+          setShowLogBanner(true);
+        } else {
+          setLogParseResult(null);
+          toast.error(`AI extraction failed: ${result.error}`);
+        }
       } else if (result.matches.length > 0) {
         // Apply parsed values to form state
         const newValues = matchesToFormState(result.matches);
@@ -755,13 +757,6 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
         setAutoFilledFieldKeys(highlightedKeys);
         setLogParseResult(result);
         setShowLogBanner(true);
-
-        // Show success with summary
-        const summary = result.summary || {};
-        const summaryText = summary.totalRows
-          ? ` (${summary.totalRows} rows, ${summary.devices || 0} devices, ${summary.failedLogins || 0} failed logins)`
-          : '';
-        toast.success(`AI extracted ${result.matches.length} fields${summaryText}`);
       } else {
         toast.warning('No fields could be extracted from the activity log');
         setLogParseResult({ matches: [], source: 'gemini', summary: {} });
@@ -779,7 +774,6 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
 
     } catch (err) {
       console.error('Activity log parsing error:', err);
-      toast.dismiss('activity-log-parse');
       setShowLogBanner(false);
       setAutoFilledFieldKeys(new Set());
       setLogParseResult(null);
@@ -864,7 +858,7 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    AI Extract from Log
+                    Activity Logs Extraction
                   </>
                 )}
               </Button>
@@ -897,38 +891,61 @@ export function InvestigationFormPage({ currentRole = 'investigator', currentUse
 
         {/* Activity Log Parse Results Banner */}
         {currentStep === 2 && showLogBanner && logParseResult && (
-          <div className="bg-[#F0FDF4] border-b border-[#BBF7D0] px-6 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-[#22C55E] flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
+          logParseResult.warning ? (
+            <div className="bg-[#FFFBEB] border-b border-[#FDE68A] px-6 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#F59E0B] flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#92400E]">
+                      AI extraction unavailable
+                    </p>
+                    <p className="text-[12px] text-[#A16207] mt-1">
+                      {logParseResult.warning}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[13px] font-semibold text-[#166534]">
-                    {logParseResult.source === 'gemini' ? 'AI extraction completed' : 'Activity log extracted'} — {logParseResult.matches.length} field{logParseResult.matches.length !== 1 ? 's' : ''} auto-populated.
-                  </p>
-                  <p className="text-[12px] text-[#15803D] mt-1">
-                    {logParseResult.source === 'gemini' && logParseResult.summary?.totalRows && (
-                      <span className="mr-2">
-                        Analyzed {logParseResult.summary.totalRows} rows • {logParseResult.summary.devices || 0} device(s) • {logParseResult.summary.failedLogins || 0} failed login(s)
-                      </span>
-                    )}
-                    Highlighted rows indicate updated fields.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {logParseResult.source === 'gemini' && (
-                  <span className="text-[10px] font-medium text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded-full">
-                    Gemini 1.5 Flash
-                  </span>
-                )}
-                <button onClick={clearActivityLogFeedback} className="text-[#166534] hover:text-[#14532D]">
+                <button onClick={clearActivityLogFeedback} className="text-[#92400E] hover:text-[#78350F]">
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-[#F0FDF4] border-b border-[#BBF7D0] px-6 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#22C55E] flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#166534]">
+                      {logParseResult.source === 'gemini' ? 'AI extraction completed' : 'Activity log extracted'} — {logParseResult.matches.length} field{logParseResult.matches.length !== 1 ? 's' : ''} auto-populated.
+                    </p>
+                    <p className="text-[12px] text-[#15803D] mt-1">
+                      {logParseResult.source === 'gemini' && logParseResult.summary?.totalRows && (
+                        <span className="mr-2">
+                          Analyzed {logParseResult.summary.totalRows} rows • {logParseResult.summary.devices || 0} device(s) • {logParseResult.summary.failedLogins || 0} failed login(s)
+                        </span>
+                      )}
+                      Highlighted rows indicate updated fields.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {logParseResult.source === 'gemini' && (
+                    <span className="text-[10px] font-medium text-[#15803D] bg-[#DCFCE7] px-2 py-0.5 rounded-full">
+                      Gemini 1.5 Flash
+                    </span>
+                  )}
+                  <button onClick={clearActivityLogFeedback} className="text-[#166534] hover:text-[#14532D]">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
         )}
 
         {/* Unsaved Changes Exit Prompt */}
